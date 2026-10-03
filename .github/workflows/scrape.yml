@@ -1,4 +1,4 @@
-name: Scrape and load
+name: Scrape Polish government and city pages
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         default: "100"
       sources_only:
         description: "Comma-separated source names (empty = all)"
-        default: "migrant"
+        default: "gov.pl,mos,udsc,biznes,podatki,zus,nfz,migrant,krakow,warsaw,warsaw_districts,warsaw19115"
   schedule:
     - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
 
@@ -16,6 +16,8 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,7 +28,7 @@ jobs:
 
       - name: Scrape
         env:
-          MAX_PAGES: ${{ inputs.max_pages || '300' }}
+          MAX_PAGES: ${{ inputs.max_pages || '100' }}
           SOURCES_ONLY: ${{ inputs.sources_only || '' }}
         run: python pl_gov_scraper.py
 
@@ -35,4 +37,5 @@ jobs:
         with:
           name: pl_gov_pages
           path: pl_gov_pages.jsonl
+          retention-days: 90
           if-no-files-found: warn
