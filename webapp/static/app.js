@@ -17,6 +17,7 @@ const state = {
   tab: "active",
   language: "en",
   loginError: "",
+  loginStep: "start",
   openAcc: "prefs",
   createdFor: null,
   focus: [],
@@ -69,7 +70,10 @@ const ICONS = {
   chev: "M6 9l6 6 6-6",
   arrow: "M5 12h14M13 6l6 6-6 6",
   close: "M6 6l12 12M18 6L6 18",
-  lock: "M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3",
+  lock: "M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3",
+  tv: "M5 4h14v12H5zM5 11h14M8 19v-3M16 19v-3",
+  shieldcheck: "M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6zM9 12l2 2 4-4",
+  phone: "M8 3h8v18H8zM11 18h2",
   logout: "M10 4H5v16h5M14 8l4 4-4 4M18 12H9",
   trash: "M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13",
   globe: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18",
@@ -111,6 +115,7 @@ async function api(path, options = {}) {
     if (response.status === 401 && path !== "/api/session") {
       state.authenticated = false;
       state.recoveryAvailable = true;
+      state.loginStep = "phone";
       state.loginError = "Your 15-day inactive session expired. Enter the same number on this browser to restore your private progress.";
       go("login");
     }
@@ -213,23 +218,47 @@ function go(page, extra = {}) {
 }
 
 /* ---------- screens ---------- */
+const LOGIN_INFO = {
+  privacy: "Your number isn’t verified and is stored only as a protected hash. Your journeys stay private to this browser.",
+  accessibility: "Text size, high contrast and reduce motion are in Profile › Preferences.",
+  help: "Use the same phone number on this browser to come back to your journeys. Sessions sign out after 15 days without activity.",
+};
+
 function renderLogin() {
-  const tiles = [["#EC625C", "flag"], ["#52771F", "doc"], ["#6227A5", "language"], ["#EE7F3A", "home"], ["#6EA1F8", "heart"], ["#1B2A5C", "sparkle"]];
+  if (state.loginStep === "phone") return renderPhoneStep();
+  const tiles = [["#EC625C", "home"], ["#52771F", "heart"], ["#6227A5", "cap"], ["#EE7F3A", "briefcase"], ["#6EA1F8", "tv"], ["#1B2A5C", "shieldcheck"]];
   view(`<div class="page">
     <div class="login-top"><div class="login-brand"><span class="flag"><i></i><i></i></span>Moving to Poland</div>
-      <button class="lang-btn" type="button" data-act="lang" aria-label="Assistant language">${icon("globe", 18)}${state.language.toUpperCase()}</button></div>
-    <div class="tiles6">${tiles.map(([c, i]) => `<div style="background:${c}">${icon(i, 40, "#fff")}</div>`).join("")}</div>
-    <div class="login-copy"><h1>Witaj</h1><p>${state.recoveryAvailable ? "Welcome back. Enter the same number to reopen your private profile on this device." : "Your friendly guide to official steps, local services and the life you’re building in Poland."}</p></div>
+      <button class="lang-btn" type="button" data-act="lang" aria-label="Change language, current ${state.language.toUpperCase()}">${icon("globe", 18)}${state.language.toUpperCase()}</button></div>
+    <div class="tiles6">${tiles.map(([c, i]) => `<div style="background:${c}">${icon(i, 36, "#fff", 1.7)}</div>`).join("")}</div>
+    <div class="login-copy"><h1>Witaj</h1><p>Your official guide to settling in Poland,<br>one clear step at a time.</p></div>
+    <div class="login-form">
+      <button class="btn btn-primary" type="button" data-act="login-phone" style="gap:12px"><span class="g-badge">${icon("phone", 18, "#2A5BD7", 2)}</span><span>Log in with phone</span></button>
+      <button class="btn btn-outline" type="button" data-act="login-phone">${icon("user", 20)}Continue on this device</button>
+      <button class="btn-text" type="button" data-act="login-phone" style="align-self:center">New here? Create an account</button>
+    </div>
+    <div class="login-foot">
+      <div class="gdpr">${icon("lock", 15, "#5F6685")}Your data is protected under GDPR</div>
+      <div class="links"><button type="button" data-info="privacy">Privacy</button><button type="button" data-info="accessibility">Accessibility</button><button type="button" data-info="help">Help</button></div>
+    </div></div>`);
+}
+
+function renderPhoneStep() {
+  view(`<div class="page">
+    <div class="back-row"><button class="icon-btn" type="button" data-act="login-back" aria-label="Back">${icon("back")}</button><div class="title"></div><div class="spacer"></div></div>
+    <div class="login-copy" style="padding-top:12px"><h1 style="font-size:32px">${state.recoveryAvailable ? "Welcome back" : "Log in with phone"}</h1>
+      <p>${state.recoveryAvailable ? "Enter the same number to reopen your private profile on this device." : "Enter your phone number. We use it only to keep your private profile on this device."}</p></div>
     <form class="login-form" id="loginForm">
-      <label class="sr-only" for="phone">Phone number with country code</label>
-      <input class="input" id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+48 600 000 000" maxlength="24" required>
+      <label class="field"><span>Phone number with country code</span>
+      <input class="input" id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+48 600 000 000" maxlength="24" required></label>
       <p class="error" id="loginError" role="alert">${esc(state.loginError)}</p>
-      <button class="btn btn-primary" type="submit">${state.recoveryAvailable ? "Continue to my profile" : "Continue"}</button>
+      <button class="btn btn-primary" type="submit">Continue</button>
     </form>
     <div class="login-foot">
-      <div class="gdpr">${icon("shield", 16)}Your data is protected under GDPR</div>
-      <p class="note">Your number isn’t verified and is stored only as a protected hash. Your journeys stay with this browser; sessions sign out after 15 days without activity.</p>
+      <div class="gdpr">${icon("lock", 15, "#5F6685")}Your data is protected under GDPR</div>
+      <p class="note">${LOGIN_INFO.privacy} Sessions sign out after 15 days without activity.</p>
     </div></div>`);
+  document.getElementById("phone").focus();
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.currentTarget.querySelector("button");
@@ -241,6 +270,7 @@ function renderLogin() {
       state.authenticated = true;
       state.recoveryAvailable = false;
       state.loginError = "";
+      state.loginStep = "start";
       await loadAll();
       go("home");
     } catch (problem) {
@@ -277,21 +307,22 @@ function sourcesBlock(sources) {
 
 function renderChat() {
   const userTurns = state.history.filter((m) => m.role === "user").length;
-  const intro = "Hi! I’m your Gov Assistant. Tell me what you need to sort out in Poland and I’ll ask a few questions before building your plan.";
-  const bubbles = [`<div class="bubble bot">${esc(intro)}</div>`].concat(state.history.map((m, i) => {
+  const empty = !state.history.length && !state.busy;
+  const bubbles = state.history.map((m, i) => {
     const last = i === state.history.length - 1 && m.role === "assistant";
     return m.role === "user"
       ? `<div class="bubble me">${esc(m.content)}</div>`
       : `<div class="bubble bot">${esc(m.content)}${last ? sourcesBlock(state.sources) : ""}</div>`;
-  }));
+  });
   if (userTurns >= 2) {
     bubbles.push(`<button class="bubble bot create" style="max-width:286px;align-self:flex-start;background:var(--blue);color:#fff;border:0;display:flex;justify-content:center;gap:8px;align-items:center;cursor:pointer;font-weight:600" type="button" data-act="create">${icon("sparkle", 18, "#fff")}Create my journey</button>`);
   }
   view(`<div class="page fill">
     <div class="chat-head"><button class="back" type="button" data-go="home" aria-label="Back">${icon("back")}</button>
       <span class="avatar">${icon("sparkle", 20, "#fff")}</span>
-      <div class="who"><div class="name">Gov Assistant</div><div class="status"><i></i>AI assistant · official sources</div></div></div>
-    <div class="chat-body" id="chatBody" aria-live="polite"><div class="day-pill">Today</div>${bubbles.join("")}</div>
+      <div class="who"><div class="name">Gov Assistant</div><div class="status"><i></i>AI assistant · official sources</div></div>
+      ${state.history.length ? `<button class="back" type="button" data-act="new-chat" aria-label="New chat">${icon("plus")}</button>` : ""}</div>
+    <div class="chat-body ${empty ? "is-empty" : ""}" id="chatBody" aria-live="polite">${bubbles.join("")}</div>
     <div class="composer"><form id="chatForm" autocomplete="off">
       <button class="icon-btn" type="button" data-act="mic" aria-label="Voice input (coming soon)" style="background:var(--bg)">${icon("mic", 20)}</button>
       <input class="msg" id="chatInput" maxlength="2000" placeholder="Ask anything about moving to Poland…" aria-label="Your message" enterkeyhint="send">
@@ -305,6 +336,14 @@ function renderChat() {
     const text = input.value.trim();
     if (text) sendChat(text);
   });
+}
+
+function startNewChat() {
+  state.history = [];
+  state.sources = [];
+  api("/api/conversation", { method: "PUT", body: { history: [] } }).catch(() => {});
+  go("chat");
+  document.getElementById("chatInput")?.focus();
 }
 
 async function sendChat(answer) {
@@ -694,10 +733,18 @@ async function refreshJourneys() {
 }
 
 document.addEventListener("click", async (event) => {
-  const el = event.target.closest("[data-go],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert]");
+  const el = event.target.closest("[data-go],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert],[data-info]");
   if (!el) return;
   const d = el.dataset;
-  if (d.topic) { state.page = "chat"; renderChat(); sendChat(d.topic); return; }
+  if (d.info) return toast(LOGIN_INFO[d.info]);
+  if (d.topic) {
+    state.history = [];
+    state.sources = [];
+    state.page = "chat";
+    renderChat();
+    sendChat(d.topic);
+    return;
+  }
   if (d.journey) {
     state.current = state.journeys.find((j) => j.id === d.journey) || { id: d.journey };
     return go("journey");
@@ -741,7 +788,9 @@ document.addEventListener("click", async (event) => {
   }
   switch (d.act) {
     case "lang": state.language = { en: "pl", pl: "uk", uk: "en" }[state.language]; return renderLogin();
-    case "new-chat": return go("chat");
+    case "new-chat": return startNewChat();
+    case "login-phone": state.loginStep = "phone"; return renderLogin();
+    case "login-back": state.loginStep = "start"; state.loginError = ""; return renderLogin();
     case "mic": return toast("Voice input is coming soon.");
     case "create": return sendChat("Please create my journey now based on what I’ve told you.");
     case "see-journey": return go("ready");
@@ -768,7 +817,8 @@ document.addEventListener("click", async (event) => {
     case "logout":
       try {
         await api("/api/session/logout", { method: "POST" });
-        Object.assign(state, { authenticated: false, recoveryAvailable: true, history: [], journeys: [], alerts: [], current: null, loginError: "You’re signed out. Enter the same number on this browser to continue your private profile." });
+        Object.assign(state, { authenticated: false, recoveryAvailable: true, loginStep: "start", history: [], journeys: [], alerts: [], current: null, loginError: "" });
+        toast("You’re signed out.");
         go("login");
       } catch (error) { toast(error.message); }
       return;
@@ -789,6 +839,7 @@ async function initialize() {
     }
   } catch (error) {
     state.authenticated = false;
+    state.loginStep = "phone";
     state.loginError = error.message;
   }
   if (!state.authenticated) state.page = "login";

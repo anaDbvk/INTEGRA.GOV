@@ -86,6 +86,7 @@ html.text-lg .phone{zoom:1.12}
 .login-copy h1{font-family:var(--display);font-size:40px;font-weight:700;letter-spacing:-.5px}
 .login-copy p{font-size:17px;line-height:1.45;color:var(--sub)}
 .login-form{padding:24px 24px 0;display:flex;flex-direction:column;gap:10px}
+.g-badge{width:30px;height:30px;border-radius:15px;background:#fff;display:flex;align-items:center;justify-content:center}
 .login-form .input{height:54px;border-radius:16px}
 .login-foot{margin-top:auto;padding:20px 24px var(--bottom);display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center}
 .login-foot .gdpr{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
