@@ -9,10 +9,6 @@ on:
       sources_only:
         description: "Comma-separated source names (empty = all)"
         default: "migrant"
-      load_to_db:
-        description: "Load results into Supabase"
-        type: boolean
-        default: false
   schedule:
     - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
 
@@ -40,9 +36,3 @@ jobs:
           name: pl_gov_pages
           path: pl_gov_pages.jsonl
           if-no-files-found: warn
-
-      - name: Load into Supabase
-        if: ${{ github.event_name == 'schedule' || inputs.load_to_db }}
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python load_to_supabase.py pl_gov_pages.jsonl
