@@ -66,9 +66,11 @@ function setPage(page) {
 
 function updateNav() {
   bottomNav.classList.toggle("hidden", !state.authenticated);
+  document.querySelector('[data-page="profile"]').classList.toggle("hidden", !state.authenticated);
   for (const button of bottomNav.querySelectorAll("button")) {
     const active = button.dataset.page === state.page
       || (state.page === "journey-detail" && button.dataset.page === "journeys")
+      || (state.page === "journey-complete" && button.dataset.page === "journeys")
       || (state.page === "journey-ready" && button.dataset.page === "home")
       || (state.page === "pesel" && button.dataset.page === "explore");
     button.classList.toggle("active", active);
@@ -393,6 +395,10 @@ async function renderJourneyDetail() {
             method: "PATCH",
             body: { completed_steps: completed },
           });
+          if (completed.length === (journey.journey_blocks || []).length && completed.length > 0) {
+            state.latestJourney = { ...record, completed_steps: completed };
+            setPage("journey-complete");
+          }
         } catch (error) {
           checkbox.checked = !checkbox.checked;
           toast(error.message);
@@ -405,6 +411,25 @@ async function renderJourneyDetail() {
     if (state.page !== "journey-detail" || state.selectedJourney !== selected) return;
     screen.innerHTML = `<section class="card"><h2>Journey unavailable</h2><p class="subtle">${escapeHtml(error.message)}</p><button class="secondary-button" data-page="journeys">Back to journeys</button></section>`;
   }
+}
+
+function renderJourneyComplete() {
+  const record = state.latestJourney;
+  if (!record) {
+    setPage("journeys");
+    return;
+  }
+  const journey = record.journey || {};
+  screen.innerHTML = `
+    <section class="card completion-card">
+      <div class="round-icon" aria-hidden="true">✓</div>
+      <p class="eyebrow">Journey complete</p>
+      <h1>Look how far you’ve come.</h1>
+      <p class="lead">You’ve marked every step in “${escapeHtml(record.title)}” as complete. Keep your source links handy in case you need to check anything again.</p>
+      <button class="primary-button wide" data-action="open-completed">View my completed journey</button>
+    </section>
+    ${journey.needs_official_help ? `<p class="warning">For this situation, please still confirm the outcome with the responsible official office or professional.</p>` : ""}
+    <button class="quiet-button wide" data-page="home">Back to home</button>`;
 }
 
 function renderExplore() {
@@ -443,6 +468,41 @@ function renderLearn() {
     <div class="page-heading"><div><p class="eyebrow">Small words, big confidence</p><h1>Learn Polish</h1><p class="subtle">A few phrases to make everyday official visits feel easier.</p></div></div>
     <section class="card">${phrases.map(([polish, english, note]) => `<div class="phrase"><strong>${polish}</strong><small>${english} · ${note}</small></div>`).join("")}</section>
     <p class="privacy-note">These are practical language examples, not official terminology. For process-specific terms, ask the assistant and check the cited source.</p>`;
+}
+
+function renderProfile() {
+  screen.innerHTML = `
+    <div class="page-heading"><div><p class="eyebrow">Your account</p><h1>Profile settings</h1><p class="subtle">Manage your app preferences and understand how this private guest profile works.</p></div></div>
+    <section class="card">
+      <p class="eyebrow">Device-bound guest profile</p>
+      <h3>Your progress stays with this browser</h3>
+      <p class="subtle">Your phone number is not verified and is never shown to the assistant. A protected hash is used to link this browser to your private profile. If you clear browser data or switch devices, the profile cannot be recovered with the number alone.</p>
+      <p class="subtle">Your session signs out after 15 days without activity. Saved conversations and journeys remain in Supabase after sign-out.</p>
+    </section>
+    <section class="card">
+      <div class="field">
+        <label for="profileLanguage">Preferred assistant language</label>
+        <select id="profileLanguage">
+          <option value="en" ${state.language === "en" ? "selected" : ""}>English</option>
+          <option value="pl" ${state.language === "pl" ? "selected" : ""}>Polski</option>
+          <option value="uk" ${state.language === "uk" ? "selected" : ""}>Українська</option>
+        </select>
+      </div>
+      <p class="subtle">You can also change the language from the chat screen. The preference is kept for this visit.</p>
+    </section>
+    <section class="card">
+      <h3>Your private information</h3>
+      <p class="subtle">The assistant does not need your PESEL, document number, exact address, or other sensitive details. Please do not enter them in chat.</p>
+      <div class="stack">
+        <button class="secondary-button" data-page="journeys">Open saved journeys</button>
+        <button class="secondary-button" data-page="alerts">Open reminders</button>
+        <button class="danger-button" data-action="logout">Sign out of this device</button>
+      </div>
+    </section>`;
+  document.getElementById("profileLanguage").addEventListener("change", (event) => {
+    state.language = event.target.value;
+    toast("Assistant language updated for this visit.");
+  });
 }
 
 async function renderAlerts() {
@@ -513,11 +573,13 @@ function render() {
     case "home": renderHome(); break;
     case "chat": renderChat(); break;
     case "journey-ready": renderJourneyReady(); break;
+    case "journey-complete": renderJourneyComplete(); break;
     case "journeys": renderJourneys(); break;
     case "journey-detail": renderJourneyDetail(); break;
     case "explore": renderExplore(); break;
     case "pesel": renderPesel(); break;
     case "learn": renderLearn(); break;
+    case "profile": renderProfile(); break;
     case "alerts": renderAlerts(); break;
     default: state.page = "home"; renderHome();
   }
@@ -556,6 +618,9 @@ document.addEventListener("click", async (event) => {
   } else if (action.dataset.action === "open-latest" && state.latestJourney?.id) {
     state.selectedJourney = state.latestJourney.id;
     setPage("journey-detail");
+  } else if (action.dataset.action === "open-completed" && state.latestJourney?.id) {
+    state.selectedJourney = state.latestJourney.id;
+    setPage("journey-detail");
   } else if (action.dataset.action === "remind") {
     state.alertJourneyId = action.dataset.id;
     setPage("alerts");
@@ -567,6 +632,8 @@ document.addEventListener("click", async (event) => {
       toast("Journey deleted.");
       setPage("journeys");
     } catch (error) { toast(error.message); }
+  } else if (action.dataset.action === "logout") {
+    logoutButton.click();
   }
   const journeyButton = event.target.closest("[data-journey]");
   if (journeyButton) {
@@ -581,6 +648,9 @@ logoutButton.addEventListener("click", async () => {
     state.authenticated = false;
     state.recoveryAvailable = true;
     state.history = [];
+    state.selectedJourney = null;
+    state.latestJourney = null;
+    state.alertJourneyId = "";
     state.initialError = "You’re signed out. Enter the same number on this browser to continue your private profile.";
     setPage("login");
   } catch (error) { toast(error.message); }

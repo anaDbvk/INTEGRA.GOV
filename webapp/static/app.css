@@ -217,6 +217,8 @@ h3 { margin-bottom: 7px; font-size: 15px; font-weight: 600; }
 .step-facts { margin: 8px 0; padding: 9px 10px; border-radius: 10px; background: #f5f2e9; color: #575449; font-size: 10px; line-height: 1.65; white-space: pre-wrap; }
 .journey-source { display: block; margin-top: 5px; }
 .warning { margin: 12px 0; padding: 11px 12px; border: 1px solid #ecd7ad; border-radius: 12px; background: #fff7e7; color: #805e28; font-size: 11px; line-height: 1.5; }
+.completion-card { border-color: #c9dbc9; background: linear-gradient(135deg, #edf4eb, #fffefa); }
+.completion-card .round-icon { margin-bottom: 12px; }
 .list-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-decoration: none; }
 .list-item .arrow { color: var(--green); font-size: 18px; }
 .empty-state { padding: 30px 18px; text-align: center; }
