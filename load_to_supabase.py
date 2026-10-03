@@ -37,6 +37,9 @@ CATEGORY_RES = {
     for category, pattern in CATEGORY_PATTERNS.items()
 }
 
+CHUNK_SIZE = 1_800
+CHUNK_OVERLAP = 180
+
 
 def guess_category(url, title):
     haystack = f"{url} {title or ''}"
@@ -52,6 +55,24 @@ def jurisdiction_for(source):
     if source.startswith("warsaw"):
         return "warsaw"
     return "national"
+
+
+def split_into_chunks(text):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + CHUNK_SIZE, len(text))
+        if end < len(text):
+            boundary = text.rfind(" ", start + CHUNK_SIZE * 3 // 4, end)
+            if boundary > start:
+                end = boundary
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end == len(text):
+            break
+        start = max(start + 1, end - CHUNK_OVERLAP)
+    return chunks
 
 
 def load(cur, path):
@@ -86,6 +107,11 @@ def load(cur, path):
 
             event_dates = row.get("upcoming_event_dates", row.get("event_dates", []))
             cur.execute(
+                "select id, content_hash, origin from documents where url = %s",
+                (row["url"],),
+            )
+            previous_document = cur.fetchone()
+            cur.execute(
                 """insert into documents
                      (source_id, url, title, text_redacted, content_hash,
                       origin, recrawl, category, page_type, jurisdiction,
@@ -110,6 +136,35 @@ def load(cur, path):
                     row["fetched_at"],
                 ),
             )
+            cur.execute(
+                "select id from documents where url = %s and origin = 'scraped'",
+                (row["url"],),
+            )
+            saved_document = cur.fetchone()
+            if saved_document:
+                document_id = saved_document[0]
+                content_changed = (
+                    previous_document is None
+                    or previous_document[2] == "scraped"
+                    and previous_document[1] != row["hash"]
+                )
+                if content_changed:
+                    cur.execute("delete from chunks where document_id = %s", (document_id,))
+                cur.execute(
+                    "select count(*) from chunks where document_id = %s",
+                    (document_id,),
+                )
+                existing_chunks = cur.fetchone()[0]
+                if content_changed or existing_chunks == 0:
+                    chunks = split_into_chunks(row["text"])
+                    for chunk_index, chunk in enumerate(chunks):
+                        cur.execute(
+                            """insert into chunks (document_id, chunk_index, content)
+                               values (%s, %s, %s)
+                               on conflict (document_id, chunk_index) do update
+                               set content = excluded.content""",
+                            (document_id, chunk_index, chunk),
+                        )
 
             loaded += 1
             if loaded % 200 == 0:

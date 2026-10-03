@@ -1,22 +1,28 @@
 import json
 import hmac
+import hashlib
 import logging
 import math
 import os
 import re
+import secrets
 import time
 import unicodedata
 from collections import Counter
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 from urllib.parse import urlparse
 from zipfile import BadZipFile, ZipFile
 
 import anthropic
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+import psycopg2
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import requests
 
@@ -33,6 +39,11 @@ MAX_EVIDENCE_PAGES = 5
 MAX_EVIDENCE_CHARS = 3_000
 MAX_GITHUB_RUNS = 20
 RELOAD_COOLDOWN_SECONDS = 300
+SESSION_COOKIE = "smartin_session"
+DEVICE_COOKIE = "smartin_device"
+SESSION_MAX_AGE = 15 * 24 * 60 * 60
+DEVICE_MAX_AGE = 5 * 365 * 24 * 60 * 60
+MAX_SAVED_HISTORY = 24
 GITHUB_API = "https://api.github.com"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 _rate_hits = {}
@@ -103,11 +114,12 @@ JOURNEY_TOOL = {
 }
 
 app = FastAPI(
-    title="SmartIN Assistant Draft",
+    title="Moving to Poland",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.state.pages = []
 app.state.knowledge_source = ""
 app.state.knowledge_error = ""
@@ -125,6 +137,29 @@ class ChatRequest(BaseModel):
     language: str = Field(default="en", pattern="^(en|pl|uk)$")
 
 
+class GuestSessionRequest(BaseModel):
+    phone: str = Field(min_length=8, max_length=24)
+
+
+class ConversationUpdate(BaseModel):
+    history: list[ChatMessage] = Field(max_length=MAX_SAVED_HISTORY)
+
+
+class JourneyProgressUpdate(BaseModel):
+    completed_steps: list[int] = Field(max_length=8)
+
+
+class AlertCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(default="", max_length=1_000)
+    due_at: datetime | None = None
+    journey_id: UUID | None = None
+
+
+class AlertReadUpdate(BaseModel):
+    is_read: bool
+
+
 def tokenize(text):
     return [
         stem(token)
@@ -137,6 +172,191 @@ def stem(token):
     token = unicodedata.normalize("NFKD", token.lower())
     token = "".join(char for char in token if not unicodedata.combining(char))
     return token.replace("ł", "l")[:6]
+
+
+def database_connection():
+    database_url = os.getenv("DATABASE_URL", "")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured.")
+    return psycopg2.connect(database_url)
+
+
+def session_secret():
+    secret = os.getenv("APP_SESSION_SECRET", "")
+    if len(secret) < 32:
+        raise RuntimeError("APP_SESSION_SECRET must contain at least 32 characters.")
+    return secret.encode()
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def normalize_phone(phone):
+    normalized = re.sub(r"[\s().-]", "", phone)
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", normalized):
+        raise HTTPException(
+            status_code=422,
+            detail="Enter the phone number in international format, including country code.",
+        )
+    return normalized
+
+
+def phone_hash(phone):
+    return hmac.new(session_secret(), normalize_phone(phone).encode(), "sha256").hexdigest()
+
+
+def issue_session(cursor, profile_id, device_id):
+    session_token = secrets.token_urlsafe(32)
+    cursor.execute(
+        """insert into guest_sessions (session_token_hash, profile_id, device_id)
+           values (%s, %s, %s)""",
+        (token_hash(session_token), profile_id, device_id),
+    )
+    return session_token
+
+
+def create_or_restore_guest(phone, device_token):
+    hashed_phone = phone_hash(phone)
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            if device_token:
+                cursor.execute(
+                    """select p.id, d.id
+                       from guest_devices d
+                       join guest_profiles p on p.id = d.profile_id
+                       where d.recovery_token_hash = %s and p.phone_hash = %s""",
+                    (token_hash(device_token), hashed_phone),
+                )
+                device = cursor.fetchone()
+                if not device:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="This phone and device do not match an existing guest profile.",
+                    )
+                profile_id, device_id = device
+                cursor.execute(
+                    "update guest_devices set last_used_at = now() where id = %s",
+                    (device_id,),
+                )
+            else:
+                cursor.execute(
+                    "insert into guest_profiles (phone_hash) values (%s) returning id",
+                    (hashed_phone,),
+                )
+                profile_id = cursor.fetchone()[0]
+                device_token = secrets.token_urlsafe(32)
+                cursor.execute(
+                    """insert into guest_devices (profile_id, recovery_token_hash)
+                       values (%s, %s) returning id""",
+                    (profile_id, token_hash(device_token)),
+                )
+                device_id = cursor.fetchone()[0]
+            session_token = issue_session(cursor, profile_id, device_id)
+        connection.commit()
+        return str(profile_id), session_token, device_token
+    except psycopg2.errors.UniqueViolation as error:
+        connection.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This phone is already linked to another device profile. "
+                "Phone-only recovery is unavailable until verification is added."
+            ),
+        ) from error
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def refresh_guest_session(session_token):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """update guest_sessions
+                   set last_seen_at = now()
+                   where session_token_hash = %s
+                     and last_seen_at > now() - interval '15 days'
+                   returning profile_id""",
+                (token_hash(session_token),),
+            )
+            result = cursor.fetchone()
+            if not result:
+                cursor.execute(
+                    "delete from guest_sessions where session_token_hash = %s",
+                    (token_hash(session_token),),
+                )
+        connection.commit()
+        return str(result[0]) if result else None
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def delete_guest_session(session_token):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "delete from guest_sessions where session_token_hash = %s",
+                (token_hash(session_token),),
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def secure_cookie(request):
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+
+
+async def require_guest(request: Request, response: Response):
+    session_token = request.cookies.get(SESSION_COOKIE, "")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Your guest session has expired. Please continue again.")
+    try:
+        profile_id = await run_in_threadpool(refresh_guest_session, session_token)
+    except (RuntimeError, psycopg2.Error) as error:
+        logger.exception("Could not validate guest session")
+        raise HTTPException(status_code=503, detail="Guest sessions are temporarily unavailable.") from error
+    if not profile_id:
+        response.delete_cookie(
+            SESSION_COOKIE,
+            path="/",
+            httponly=True,
+            secure=secure_cookie(request),
+            samesite="lax",
+        )
+        raise HTTPException(status_code=401, detail="Your guest session has expired. Please continue again.")
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=secure_cookie(request),
+        samesite="lax",
+        path="/",
+    )
+    return profile_id
+
+
+async def database_call(function, *args):
+    try:
+        return await run_in_threadpool(function, *args)
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.exception("Supabase operation failed")
+        raise HTTPException(status_code=503, detail="Supabase is temporarily unavailable.") from error
 
 
 def validate_page(row, line_number):
@@ -331,6 +551,10 @@ def load_github_dataset():
 def ensure_default_dataset():
     if app.state.pages:
         return
+    if os.getenv("DATABASE_URL"):
+        app.state.knowledge_source = "Supabase"
+        app.state.knowledge_error = ""
+        return
     now = time.monotonic()
     last = app.state.last_load_attempt
     if last is not None and now - last < RELOAD_COOLDOWN_SECONDS:
@@ -374,6 +598,290 @@ def ensure_default_dataset():
     logger.info("Loaded %s scraper pages from %s", len(app.state.pages), DEFAULT_DATASET)
     app.state.knowledge_source = "local scrape artifact"
     app.state.knowledge_error = ""
+
+
+def search_supabase(query, limit=8):
+    terms = list(dict.fromkeys(tokenize(query)))[:24]
+    if not terms:
+        return []
+    tsquery = " | ".join(f"{term}:*" for term in terms)
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """select url, title, content, page_type, jurisdiction, fetched_at
+                   from match_chunks(%s, %s, null::text[], null::text, %s)""",
+                (None, tsquery, limit),
+            )
+            records = cursor.fetchall()
+        return [
+            validate_page(
+                {
+                    "url": row[0],
+                    "title": row[1] or row[0],
+                    "text": row[2],
+                    "page_type": row[3] or "general_info",
+                    "source": row[4] or "official",
+                    "fetched_at": row[5].isoformat() if row[5] else "",
+                },
+                index,
+            )
+            for index, row in enumerate(records, start=1)
+        ]
+    except psycopg2.Error as error:
+        logger.exception("Supabase source search failed")
+        raise RuntimeError("Could not search official information in Supabase.") from error
+    finally:
+        connection.close()
+
+
+def persist_journey(profile_id, request, result):
+    goal = " ".join(
+        [turn.content for turn in request.history if turn.role == "user"]
+        + [request.answer]
+    )[:2_000]
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """insert into user_journeys
+                     (profile_id, title, goal, language, journey)
+                   values (%s, %s, %s, %s, %s::jsonb)
+                   returning id""",
+                (
+                    profile_id,
+                    result["journey_blocks"][0]["title"][:160],
+                    goal,
+                    request.language,
+                    json.dumps(result, ensure_ascii=False),
+                ),
+            )
+            journey_id = cursor.fetchone()[0]
+        connection.commit()
+        return str(journey_id)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def save_conversation(profile_id, history):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """insert into guest_conversations (profile_id, history)
+                   values (%s, %s::jsonb)
+                   on conflict (profile_id) do update
+                   set history = excluded.history, updated_at = now()""",
+                (profile_id, json.dumps(history[-MAX_SAVED_HISTORY:], ensure_ascii=False)),
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def load_conversation(profile_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select history from guest_conversations where profile_id = %s",
+                (profile_id,),
+            )
+            result = cursor.fetchone()
+        return result[0] if result else []
+    finally:
+        connection.close()
+
+
+def list_journeys(profile_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """select id, title, goal, language, journey, completed_steps, created_at, updated_at
+                   from user_journeys where profile_id = %s order by created_at desc""",
+                (profile_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": str(row[0]),
+                "title": row[1],
+                "goal": row[2],
+                "language": row[3],
+                "journey": row[4],
+                "completed_steps": row[5],
+                "created_at": row[6].isoformat(),
+                "updated_at": row[7].isoformat(),
+            }
+            for row in rows
+        ]
+    finally:
+        connection.close()
+
+
+def get_journey(profile_id, journey_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """select id, title, goal, language, journey, completed_steps, created_at, updated_at
+                   from user_journeys where profile_id = %s and id = %s""",
+                (profile_id, str(journey_id)),
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": str(row[0]),
+            "title": row[1],
+            "goal": row[2],
+            "language": row[3],
+            "journey": row[4],
+            "completed_steps": row[5],
+            "created_at": row[6].isoformat(),
+            "updated_at": row[7].isoformat(),
+        }
+    finally:
+        connection.close()
+
+
+def update_journey_progress(profile_id, journey_id, completed_steps):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """update user_journeys set completed_steps = %s, updated_at = now()
+                   where profile_id = %s and id = %s returning id""",
+                (completed_steps, profile_id, str(journey_id)),
+            )
+            updated = cursor.fetchone()
+        connection.commit()
+        return bool(updated)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def delete_journey(profile_id, journey_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "delete from user_journeys where profile_id = %s and id = %s returning id",
+                (profile_id, str(journey_id)),
+            )
+            deleted = cursor.fetchone()
+        connection.commit()
+        return bool(deleted)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def list_alerts(profile_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """select id, journey_id, title, body, due_at, read_at, created_at
+                   from in_app_alerts where profile_id = %s order by due_at nulls last, created_at desc""",
+                (profile_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": str(row[0]),
+                "journey_id": str(row[1]) if row[1] else None,
+                "title": row[2],
+                "body": row[3],
+                "due_at": row[4].isoformat() if row[4] else None,
+                "is_read": row[5] is not None,
+                "created_at": row[6].isoformat(),
+            }
+            for row in rows
+        ]
+    finally:
+        connection.close()
+
+
+def save_alert(profile_id, alert):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            if alert.journey_id:
+                cursor.execute(
+                    "select id from user_journeys where id = %s and profile_id = %s",
+                    (str(alert.journey_id), profile_id),
+                )
+                if not cursor.fetchone():
+                    raise HTTPException(status_code=404, detail="Journey not found.")
+            cursor.execute(
+                """insert into in_app_alerts (profile_id, journey_id, title, body, due_at)
+                   values (%s, %s, %s, %s, %s) returning id""",
+                (
+                    profile_id,
+                    str(alert.journey_id) if alert.journey_id else None,
+                    alert.title,
+                    alert.body,
+                    alert.due_at,
+                ),
+            )
+            alert_id = cursor.fetchone()[0]
+        connection.commit()
+        return str(alert_id)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def set_alert_read(profile_id, alert_id, is_read):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """update in_app_alerts set read_at = case when %s then now() else null end
+                   where profile_id = %s and id = %s returning id""",
+                (is_read, profile_id, str(alert_id)),
+            )
+            updated = cursor.fetchone()
+        connection.commit()
+        return bool(updated)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def delete_alert(profile_id, alert_id):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "delete from in_app_alerts where profile_id = %s and id = %s returning id",
+                (profile_id, str(alert_id)),
+            )
+            deleted = cursor.fetchone()
+        connection.commit()
+        return bool(deleted)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 @app.on_event("startup")
@@ -525,14 +1033,9 @@ async def status():
     await run_in_threadpool(ensure_default_dataset)
     return {
         "loaded_pages": len(app.state.pages),
-        "knowledge_source": app.state.knowledge_source,
+        "knowledge_source": "Supabase" if os.getenv("DATABASE_URL") else app.state.knowledge_source,
         "knowledge_error": app.state.knowledge_error,
     }
-
-
-@app.get("/api/config")
-async def public_config():
-    return {"embed_parent_origin": os.getenv("EMBED_PARENT_ORIGIN", "")}
 
 
 @app.post("/api/knowledge")
@@ -568,11 +1071,210 @@ def check_rate_limit(request: Request):
     hits.append(now)
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/session")
+async def session_status(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE, "")
+    if not token:
+        return {
+            "authenticated": False,
+            "recovery_available": bool(request.cookies.get(DEVICE_COOKIE)),
+        }
+    profile_id = await database_call(refresh_guest_session, token)
+    if not profile_id:
+        response.delete_cookie(
+            SESSION_COOKIE,
+            path="/",
+            httponly=True,
+            secure=secure_cookie(request),
+            samesite="lax",
+        )
+        return {
+            "authenticated": False,
+            "recovery_available": bool(request.cookies.get(DEVICE_COOKIE)),
+        }
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=secure_cookie(request),
+        samesite="lax",
+        path="/",
+    )
+    return {"authenticated": True}
+
+
+@app.post("/api/session", dependencies=[Depends(check_rate_limit)])
+async def start_guest_session(
+    request: Request,
+    response: Response,
+    body: GuestSessionRequest,
+):
+    phone = normalize_phone(body.phone)
+    profile_id, session_token, device_token = await database_call(
+        create_or_restore_guest,
+        phone,
+        request.cookies.get(DEVICE_COOKIE, ""),
+    )
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=secure_cookie(request),
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        DEVICE_COOKIE,
+        device_token,
+        max_age=DEVICE_MAX_AGE,
+        httponly=True,
+        secure=secure_cookie(request),
+        samesite="lax",
+        path="/",
+    )
+    return {"authenticated": True, "profile_id": profile_id}
+
+
+@app.post("/api/session/logout")
+async def logout_guest_session(
+    request: Request,
+    response: Response,
+    profile_id: str = Depends(require_guest),
+):
+    session_token = request.cookies.get(SESSION_COOKIE, "")
+    await database_call(delete_guest_session, session_token)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        httponly=True,
+        secure=secure_cookie(request),
+        samesite="lax",
+    )
+    return {"authenticated": False}
+
+
+@app.get("/api/conversation")
+async def get_saved_conversation(profile_id: str = Depends(require_guest)):
+    history = await database_call(load_conversation, profile_id)
+    return {"history": history}
+
+
+@app.put("/api/conversation")
+async def update_saved_conversation(
+    body: ConversationUpdate,
+    profile_id: str = Depends(require_guest),
+):
+    await database_call(
+        save_conversation,
+        profile_id,
+        [turn.model_dump() for turn in body.history],
+    )
+    return {"saved": True}
+
+
+@app.get("/api/journeys")
+async def get_saved_journeys(profile_id: str = Depends(require_guest)):
+    return {"journeys": await database_call(list_journeys, profile_id)}
+
+
+@app.get("/api/journeys/{journey_id}")
+async def get_saved_journey(
+    journey_id: UUID,
+    profile_id: str = Depends(require_guest),
+):
+    journey = await database_call(get_journey, profile_id, journey_id)
+    if not journey:
+        raise HTTPException(status_code=404, detail="Journey not found.")
+    return journey
+
+
+@app.patch("/api/journeys/{journey_id}/progress")
+async def save_journey_progress(
+    journey_id: UUID,
+    body: JourneyProgressUpdate,
+    profile_id: str = Depends(require_guest),
+):
+    journey = await database_call(get_journey, profile_id, journey_id)
+    if not journey:
+        raise HTTPException(status_code=404, detail="Journey not found.")
+    total_steps = len(journey["journey"].get("journey_blocks", []))
+    if any(index < 0 or index >= total_steps for index in body.completed_steps):
+        raise HTTPException(status_code=422, detail="Completed step index is out of range.")
+    await database_call(
+        update_journey_progress,
+        profile_id,
+        journey_id,
+        sorted(set(body.completed_steps)),
+    )
+    return {"completed_steps": sorted(set(body.completed_steps))}
+
+
+@app.delete("/api/journeys/{journey_id}")
+async def remove_saved_journey(
+    journey_id: UUID,
+    profile_id: str = Depends(require_guest),
+):
+    deleted = await database_call(delete_journey, profile_id, journey_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Journey not found.")
+    return {"deleted": True}
+
+
+@app.get("/api/alerts")
+async def get_in_app_alerts(profile_id: str = Depends(require_guest)):
+    return {"alerts": await database_call(list_alerts, profile_id)}
+
+
+@app.post("/api/alerts", status_code=201)
+async def create_in_app_alert(
+    body: AlertCreate,
+    profile_id: str = Depends(require_guest),
+):
+    if body.due_at and body.due_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Alert date must include a time zone.")
+    alert_id = await database_call(save_alert, profile_id, body)
+    return {"id": alert_id}
+
+
+@app.patch("/api/alerts/{alert_id}")
+async def update_in_app_alert(
+    alert_id: UUID,
+    body: AlertReadUpdate,
+    profile_id: str = Depends(require_guest),
+):
+    updated = await database_call(set_alert_read, profile_id, alert_id, body.is_read)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+    return {"updated": True}
+
+
+@app.delete("/api/alerts/{alert_id}")
+async def remove_in_app_alert(
+    alert_id: UUID,
+    profile_id: str = Depends(require_guest),
+):
+    deleted = await database_call(delete_alert, profile_id, alert_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+    return {"deleted": True}
+
+
 @app.post("/api/interview", dependencies=[Depends(check_rate_limit)])
-async def interview(request: ChatRequest):
+async def interview(
+    request: ChatRequest,
+    profile_id: str = Depends(require_guest),
+):
     await run_in_threadpool(ensure_default_dataset)
     pages = app.state.pages
-    if not pages:
+    use_supabase = bool(os.getenv("DATABASE_URL"))
+    if not pages and not use_supabase:
         raise HTTPException(
             status_code=503 if app.state.knowledge_error else 409,
             detail=app.state.knowledge_error or "Upload a scraper JSONL artifact first.",
@@ -589,13 +1291,21 @@ async def interview(request: ChatRequest):
         )
     fast_model = os.getenv("ANTHROPIC_FAST_MODEL", "") or model
     history_text = " ".join(turn.content for turn in request.history if turn.role == "user")
+    conversation_history = [turn.model_dump() for turn in request.history]
+    conversation_history.append({"role": "user", "content": request.answer})
+    if use_supabase:
+        await database_call(save_conversation, profile_id, conversation_history)
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         search_text = await rewrite_query_pl(
             client, fast_model, f"{history_text} {request.answer}"
         )
-        relevant_pages = retrieve_pages(pages, search_text)
+        relevant_pages = (
+            await database_call(search_supabase, search_text)
+            if use_supabase
+            else retrieve_pages(pages, search_text)
+        )
         evidence, sources = format_evidence(relevant_pages, search_text)
         messages = build_conversation(
             request.answer,
@@ -688,7 +1398,14 @@ async def interview(request: ChatRequest):
                     block[key] = value[:300] if isinstance(value, str) else ""
     if outcome != "journey":
         journey_blocks = []
-    return {
+    assistant_text = (
+        f"{message}\n\n{question}"
+        if outcome == "interview"
+        else message
+    )
+    conversation_history.append({"role": "assistant", "content": assistant_text})
+    saved_journey_id = None
+    result = {
         "outcome": outcome,
         "message": message,
         "question": question if outcome == "interview" else "",
@@ -696,3 +1413,14 @@ async def interview(request: ChatRequest):
         "journey_blocks": journey_blocks,
         "sources": sources,
     }
+    if use_supabase:
+        await database_call(save_conversation, profile_id, conversation_history)
+        if outcome == "journey":
+            saved_journey_id = await database_call(
+                persist_journey,
+                profile_id,
+                request,
+                result,
+            )
+    result["saved_journey_id"] = saved_journey_id
+    return result

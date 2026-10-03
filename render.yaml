@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: moving-to-poland
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn webapp.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_SESSION_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: ANTHROPIC_FAST_MODEL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 10

@@ -17,9 +17,11 @@ from webapp.app import (
     github_get_json,
     load_github_dataset,
     parse_jsonl,
+    require_guest,
     retrieve_pages,
     validate_page,
 )
+from load_to_supabase import CHUNK_OVERLAP, CHUNK_SIZE, split_into_chunks
 
 
 def jsonl_page(
@@ -52,6 +54,8 @@ class AssistantTests(unittest.TestCase):
         self.addCleanup(self.dataset_patch.stop)
         self.addCleanup(self.tempdir.cleanup)
         self.client = TestClient(app)
+        app.dependency_overrides[require_guest] = lambda: "test-profile-id"
+        self.addCleanup(app.dependency_overrides.clear)
         self.env = patch.dict(
             os.environ,
             {
@@ -72,20 +76,52 @@ class AssistantTests(unittest.TestCase):
     def test_ui_is_served_without_exposing_api_credentials(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("SmartIN Assistant", response.text)
-        self.assertIn("sent to Anthropic", response.text)
-        self.assertIn("Enter to send", response.text)
-        self.assertIn('event.key === "Enter"', response.text)
-        self.assertIn("loaded from the latest GitHub scrape", response.text)
+        self.assertIn("Moving to Poland", response.text)
+        self.assertIn('/static/app.css', response.text)
+        self.assertIn('/static/app.js', response.text)
         self.assertNotIn('type="file"', response.text)
         self.assertNotIn("Load assistant knowledge", response.text)
         self.assertNotIn("test-api-key", response.text)
+        script = self.client.get("/static/app.js")
+        self.assertEqual(script.status_code, 200)
+        self.assertIn("Enter to send", script.text)
+        self.assertIn('event.key === "Enter"', script.text)
+        self.assertIn("sent to Anthropic", script.text)
+        stylesheet = self.client.get("/static/app.css")
+        self.assertEqual(stylesheet.status_code, 200)
+        self.assertNotIn("fonts.googleapis.com", stylesheet.text)
 
     def test_api_is_available_without_a_shared_access_token(self):
         self.assertEqual(
             self.client.get("/api/status").json(),
             {"loaded_pages": 0, "knowledge_source": "", "knowledge_error": ""},
         )
+
+    def test_static_app_assets_are_served(self):
+        self.assertEqual(self.client.get("/static/app.js").status_code, 200)
+        self.assertEqual(self.client.get("/static/app.css").status_code, 200)
+
+    def test_private_routes_require_a_guest_session(self):
+        app.dependency_overrides.clear()
+        for path in ("/api/conversation", "/api/journeys", "/api/alerts"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 401)
+
+    def test_journeys_are_loaded_for_the_authenticated_profile(self):
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=[])) as database_call:
+            response = self.client.get("/api/journeys")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"journeys": []})
+        self.assertEqual(database_call.await_args.args[1], "test-profile-id")
+
+    def test_supabase_chunking_preserves_text_with_overlapping_context(self):
+        text = "x" * (CHUNK_SIZE + 500)
+        chunks = split_into_chunks(text)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0][-CHUNK_OVERLAP:], chunks[1][:CHUNK_OVERLAP])
+        rebuilt = chunks[0] + "".join(chunk[CHUNK_OVERLAP:] for chunk in chunks[1:])
+        self.assertEqual(rebuilt, text)
 
     def test_status_auto_loads_local_dataset(self):
         dataset = Path(self.tempdir.name) / "missing.jsonl"

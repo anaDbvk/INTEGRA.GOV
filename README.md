@@ -56,7 +56,11 @@ therefore be incomplete, and the page limit can exclude districts or events.
 PII redaction is best-effort (common emails, phone numbers, and identifiers);
 it does not remove names or guarantee that all personal data is redacted.
 
-## SmartIN assistant draft
+## Legacy chat-only demo notes (superseded)
+
+> The notes in this section describe the earlier chat-only prototype. Use the
+> current smartphone app and Render instructions in the section at the end of
+> this README instead.
 
 `webapp/` contains a chat-only guided-interview UI and a small FastAPI backend.
 The assistant asks one follow-up at a time, then returns an ordered set of
@@ -141,3 +145,79 @@ not submit personal or sensitive data. The first version uses local lexical
 retrieval rather than embeddings and does not persist uploaded pages or chat
 history. It gives citations to the retrieved pages rather than independently
 verifying claims.
+
+## Moving to Poland web app
+
+`webapp/` contains the smartphone-first FastAPI app based on
+`Moving to Poland – App Design.html`. It provides a guided interview in
+English, Polish, or Ukrainian, cited official-source journeys, private saved
+conversations and journeys, journey progress, in-app reminders, topic guides,
+and Polish phrases. The static interface is served by the same app; no
+separate frontend hosting is needed.
+
+### Supabase setup
+
+Run `supabase/schema.sql` first if it has not already been applied, then run
+`supabase/app_tables.sql` in the Supabase SQL editor. The second script adds
+the private guest-profile, device, session, conversation, journey, and
+reminder tables. It enables row-level security without public policies; the
+server accesses these records using its private `DATABASE_URL`.
+
+The scraper loader now creates searchable text chunks for scraped pages.
+After applying the schema, run the **Scrape and load** GitHub Actions workflow
+to populate documents and chunks. Add the Supabase **Session pooler**
+connection string as `DATABASE_URL` in both GitHub Actions secrets (for the
+loader) and the Render service environment (for the app). Do not use the
+direct database connection string for GitHub Actions.
+
+### Render deployment
+
+Create a Render Blueprint from this repository using `render.yaml`, or create
+a Python web service with build command `pip install -r requirements.txt`,
+start command `uvicorn webapp.app:app --host 0.0.0.0 --port $PORT`, and health
+check path `/health`. Configure these service environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Supabase Session pooler connection string |
+| `APP_SESSION_SECRET` | Stable random secret of at least 32 characters; changing it prevents existing phone hashes from matching |
+| `ANTHROPIC_API_KEY` | Server-side Anthropic API key |
+| `ANTHROPIC_MODEL` | Model ID enabled for the Anthropic account |
+| `ANTHROPIC_FAST_MODEL` | Optional less expensive model for Polish query rewriting; defaults to `ANTHROPIC_MODEL` |
+| `ADMIN_TOKEN` | Optional long random secret for the restricted knowledge-upload endpoint |
+| `RATE_LIMIT_PER_MINUTE` | Per-IP interview/session request limit; defaults to `10` |
+
+Never put database or Anthropic credentials in the browser or repository.
+Set an Anthropic Console spend limit. The rate limiter is in-memory and resets
+when Render restarts the service.
+
+### Guest profile and privacy limits
+
+The MVP does not verify phone numbers: a number is only an identifier, not
+proof of identity. A random HttpOnly device cookie binds each profile to that
+browser. The session expires after 15 days without activity, while the
+device-bound cookie can restore the profile on the same browser when the user
+enters the same number again. Phone-only recovery on another device, after
+clearing browser data, or after losing the cookie is not supported. Supabase
+data remains saved after logout. Add phone verification before treating this
+as production authentication or storing sensitive personal information.
+
+Do not enter PESEL, document numbers, exact addresses, or other sensitive
+details. Questions and relevant official excerpts are sent to Anthropic.
+Source redaction is best-effort. Reminders are shown only inside the app;
+there is no email, push, or scheduled notification service. Official facts
+must be checked against the linked government or city pages.
+
+For a local preview, configure the same variables and run:
+
+```powershell
+python -m pip install -r requirements.txt
+$env:DATABASE_URL = "your-Supabase-Session-pooler-connection-string"
+$env:APP_SESSION_SECRET = "a-stable-random-secret-at-least-32-characters"
+$env:ANTHROPIC_API_KEY = "your-Anthropic-API-key"
+$env:ANTHROPIC_MODEL = "your-enabled-model-id"
+python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000`. Never commit real credentials or scraped
+personal information.
