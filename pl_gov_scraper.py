@@ -13,9 +13,11 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 import urllib.robotparser
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -24,6 +26,7 @@ from bs4 import BeautifulSoup
 
 UA = "SmartIN-Scraper/0.2 (+https://github.com/anaDbvk/SmartIN)"
 DELAY = float(os.getenv("REQUEST_DELAY", "2"))
+WORKERS = max(1, int(os.getenv("SCRAPE_WORKERS", "6")))
 MAX_PAGES = int(os.getenv("MAX_PAGES", "100"))
 SKIP_URL_PARTS = (
     "kontakt", "contact", "pracownicy", "kadra", "oswiadczeni",
@@ -346,11 +349,13 @@ def run(out_path="pl_gov_pages.jsonl"):
         raise ValueError("No sources selected.")
 
     total = 0
+    lock = threading.Lock()
     with open(out_path, "w", encoding="utf-8") as output:
-        for name, base in selected:
+        def scrape_source(name, base):
+            nonlocal total
             robots = robots_for(base)
             if robots is None:
-                continue
+                return
             seeds = [url for url in SEED_URLS.get(name, ()) if same_site(url, base)]
             queue = deque((url, "seed") for url in seeds)
             queued = set(seeds)
@@ -404,7 +409,7 @@ def run(out_path="pl_gov_pages.jsonl"):
                     if target not in visited and target not in queued:
                         queue.append((target, url))
                         queued.add(target)
-                output.write(json.dumps({
+                record = json.dumps({
                     "source": name,
                     "page_type": kind,
                     "url": url,
@@ -417,13 +422,20 @@ def run(out_path="pl_gov_pages.jsonl"):
                     "discovered_from": discovered_by,
                     "hash": hashlib.sha256(text.encode()).hexdigest(),
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
-                }, ensure_ascii=False) + "\n")
-                total += 1
+                }, ensure_ascii=False) + "\n"
+                with lock:
+                    output.write(record)
+                    output.flush()
+                    total += 1
                 saved += 1
                 if count % 25 == 0:
                     print(f"{name}: fetched {count}/{MAX_PAGES} pages")
 
             print(f"{name}: saved {saved} pages from {len(visited)} visited URLs")
+
+        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            for future in [pool.submit(scrape_source, n, b) for n, b in selected]:
+                future.result()
     print(f"done: saved {total} pages to {out_path}")
 
 
