@@ -54,15 +54,20 @@ source-cited journey blocks. It interviews in English, Polish, or Ukrainian
 and searches an uploaded scraper JSONL artifact locally. Only the conversation
 and up to five matching page excerpts are sent to Anthropic. Uploaded pages
 live in process memory only: restarting the app or loading another artifact
-clears/replaces them. The assistant does not automatically download artifacts
-from GitHub; download `pl_gov_pages` from a workflow run, extract
-`pl_gov_pages.jsonl`, then upload it in the UI.
+clears/replaces them. By default, you can download `pl_gov_pages` from a
+workflow run, extract `pl_gov_pages.jsonl`, then upload it in the UI.
 
 For a local preview, place a merged JSONL file at
 `webapp/data/pl_gov_pages.jsonl`; the backend loads it into memory on startup
 and the UI shows the loaded page count. This local data file is git-ignored and
-is not included in commits or deployments. Otherwise, use the artifact upload
-control in the UI.
+is not included in commits or deployments. Alternatively, configure
+`GITHUB_TOKEN` and `GITHUB_REPOSITORY=anaDbvk/SmartIN` on the backend. At
+startup, the app fetches unexpired `pl_gov_pages` artifacts from recent
+successful runs of `scrape.yml`, merges duplicate URLs, and loads the pages
+without requiring a browser upload. The GitHub token must have read access to
+Actions artifacts for this private repository. `GITHUB_WORKFLOW_FILE` can
+override the workflow filename; it defaults to `scrape.yml`. If those GitHub
+settings are absent, the UI's artifact upload remains available.
 
 Run it locally from the repository root:
 
@@ -70,15 +75,24 @@ Run it locally from the repository root:
 python -m pip install -r requirements.txt
 $env:ANTHROPIC_API_KEY = "your-Anthropic-API-key"
 $env:ANTHROPIC_MODEL = "your-enabled-Claude-model-id"
+$env:GITHUB_TOKEN = "your-read-only-fine-grained-GitHub-token"
+$env:GITHUB_REPOSITORY = "anaDbvk/SmartIN"
 python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000` and upload the extracted JSONL. Never put the
-Anthropic key in the UI or browser; it is read only by the backend. Use a
-currently enabled model ID from your Anthropic account. This draft has no
+Open `http://127.0.0.1:8000`. The app loads scrape artifacts automatically.
+Never put the Anthropic key or GitHub token in the UI or browser; they are read
+only by the backend. Use a currently enabled model ID from your Anthropic
+account. This draft has no
 built-in sign-in: when deployed, put it behind your platform's authentication,
 HTTPS, and request/cost limits. Do not expose the backend directly to the
 public internet without those controls.
+
+For Render, add `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
+`GITHUB_TOKEN`, and `GITHUB_REPOSITORY` as service environment variables. Use a
+fine-grained GitHub token restricted to this repository with Actions read
+permission. This lets a private Render service find and download recent
+unexpired Actions artifacts on startup.
 
 To embed it in another page after deploying the backend, use an iframe:
 

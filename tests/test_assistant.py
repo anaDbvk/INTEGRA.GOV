@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from webapp.app import app, retrieve_pages, validate_page
+from webapp.app import app, load_github_dataset, retrieve_pages, validate_page
 
 
 def jsonl_page(
@@ -31,6 +31,8 @@ def jsonl_page(
 class AssistantTests(unittest.TestCase):
     def setUp(self):
         app.state.pages = []
+        app.state.knowledge_source = ""
+        app.state.knowledge_error = ""
         self.tempdir = tempfile.TemporaryDirectory()
         dataset = Path(self.tempdir.name) / "missing.jsonl"
         self.dataset_patch = patch("webapp.app.DEFAULT_DATASET", dataset)
@@ -50,6 +52,7 @@ class AssistantTests(unittest.TestCase):
 
     def tearDown(self):
         app.state.pages = []
+        app.state.knowledge_source = ""
 
     def test_ui_is_served_without_exposing_api_credentials(self):
         response = self.client.get("/")
@@ -61,15 +64,67 @@ class AssistantTests(unittest.TestCase):
     def test_api_is_available_without_a_shared_access_token(self):
         self.assertEqual(
             self.client.get("/api/status").json(),
-            {"loaded_pages": 0},
+            {"loaded_pages": 0, "knowledge_source": "", "knowledge_error": ""},
         )
 
     def test_status_auto_loads_local_dataset(self):
         dataset = Path(self.tempdir.name) / "missing.jsonl"
         dataset.write_text(json.dumps(jsonl_page()) + "\n", encoding="utf-8")
         response = self.client.get("/api/status")
-        self.assertEqual(response.json(), {"loaded_pages": 1})
+        self.assertEqual(
+            response.json(),
+            {
+                "loaded_pages": 1,
+                "knowledge_source": "local scrape artifact",
+                "knowledge_error": "",
+            },
+        )
         self.assertEqual(app.state.pages[0]["title"], "Report death - Gov.pl")
+
+    def test_github_loader_merges_recent_artifacts_and_keeps_latest_page(self):
+        old = jsonl_page(text="Older scraped content.")
+        old["fetched_at"] = "2026-10-02T12:00:00+00:00"
+        new = jsonl_page(text="Latest scraped content.")
+        new["fetched_at"] = "2026-10-03T12:00:00+00:00"
+        event = jsonl_page(
+            title="Upcoming city event",
+            text="A local event in Krakow.",
+            url="https://www.krakow.pl/events/example",
+            source="krakow",
+        )
+        run = {"id": 123}
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "test-github-token", "GITHUB_REPOSITORY": "owner/repo"}),
+            patch(
+                "webapp.app.github_get_json",
+                side_effect=[
+                    {"workflow_runs": [run]},
+                    {"artifacts": [{"id": 456, "name": "pl_gov_pages", "expired": False}]},
+                ],
+            ) as github_get,
+            patch(
+                "webapp.app.download_artifact",
+                return_value=(
+                    "\n".join(json.dumps(row) for row in (old, new, event)) + "\n"
+                ).encode(),
+            ),
+        ):
+            pages, artifact_count = load_github_dataset()
+        self.assertEqual(artifact_count, 1)
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(
+            github_get.call_args_list[0].args[1]["Authorization"],
+            "Bearer test-github-token",
+        )
+        latest = next(page for page in pages if page["url"] == new["url"])
+        self.assertEqual(latest["text"], "Latest scraped content.")
+
+    def test_missing_github_repository_is_shown_in_status(self):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "test-github-token"}, clear=False):
+            os.environ.pop("GITHUB_REPOSITORY", None)
+            response = self.client.get("/api/status")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("GITHUB_REPOSITORY", response.json()["knowledge_error"])
 
     def test_upload_rejects_non_http_url_and_keeps_previous_knowledge(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]

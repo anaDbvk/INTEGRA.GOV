@@ -4,14 +4,17 @@ import math
 import os
 import re
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
+from zipfile import BadZipFile, ZipFile
 
 import anthropic
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import requests
 
 logger = logging.getLogger("smartin_assistant")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -24,6 +27,8 @@ MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_CHARS = 6_000
 MAX_EVIDENCE_PAGES = 5
 MAX_EVIDENCE_CHARS = 3_000
+MAX_GITHUB_RUNS = 20
+GITHUB_API = "https://api.github.com"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
@@ -41,6 +46,8 @@ app = FastAPI(
     openapi_url=None,
 )
 app.state.pages = []
+app.state.knowledge_source = ""
+app.state.knowledge_error = ""
 
 
 class ChatMessage(BaseModel):
@@ -125,10 +132,123 @@ async def load_jsonl(upload: UploadFile):
     return parse_jsonl(await upload.read(MAX_UPLOAD_BYTES + 1))
 
 
+def github_headers(token):
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def github_get_json(url, headers):
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as error:
+        logger.exception("GitHub artifact API request failed")
+        raise RuntimeError(f"Could not read scrape artifacts from GitHub: {error}") from error
+
+
+def download_artifact(artifact, headers):
+    url = f"{GITHUB_API}/repos/{artifact['repository']}/actions/artifacts/{artifact['id']}/zip"
+    try:
+        with requests.get(url, headers=headers, timeout=30, stream=True) as response:
+            response.raise_for_status()
+            chunks = bytearray()
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                chunks.extend(chunk)
+                if len(chunks) > MAX_UPLOAD_BYTES:
+                    raise RuntimeError("A GitHub scrape artifact exceeds the 25 MB download limit.")
+        with ZipFile(BytesIO(chunks)) as archive:
+            members = [
+                item for item in archive.infolist()
+                if Path(item.filename).name == "pl_gov_pages.jsonl"
+            ]
+            if len(members) != 1 or members[0].file_size > MAX_UPLOAD_BYTES:
+                raise RuntimeError("GitHub artifact does not contain one valid JSONL scrape file.")
+            return archive.read(members[0])
+    except (requests.RequestException, BadZipFile, OSError) as error:
+        logger.exception("GitHub scrape artifact download failed")
+        raise RuntimeError(f"Could not download scrape artifact {artifact['id']}: {error}") from error
+
+
+def load_github_dataset():
+    token = os.getenv("GITHUB_TOKEN", "")
+    repository = os.getenv("GITHUB_REPOSITORY", "")
+    workflow = os.getenv("GITHUB_WORKFLOW_FILE", "scrape.yml")
+    if not token or not repository:
+        raise RuntimeError("Set GITHUB_TOKEN and GITHUB_REPOSITORY to load GitHub scrape artifacts.")
+    parts = repository.split("/")
+    if len(parts) != 2 or not all(parts):
+        raise RuntimeError("GITHUB_REPOSITORY must have the owner/repository format.")
+    headers = github_headers(token)
+    runs_url = (
+        f"{GITHUB_API}/repos/{repository}/actions/workflows/{workflow}/runs"
+        "?status=success&branch=main&per_page=20"
+    )
+    runs = github_get_json(runs_url, headers).get("workflow_runs", [])
+    artifacts = []
+    for run in runs[:MAX_GITHUB_RUNS]:
+        run_artifacts = github_get_json(
+            f"{GITHUB_API}/repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100",
+            headers,
+        ).get("artifacts", [])
+        match = next(
+            (
+                item for item in run_artifacts
+                if item.get("name") == "pl_gov_pages" and not item.get("expired", True)
+            ),
+            None,
+        )
+        if match:
+            artifacts.append({**match, "repository": repository})
+
+    if not artifacts:
+        raise RuntimeError(
+            "No unexpired pl_gov_pages artifacts found in the latest successful workflow runs."
+        )
+
+    rows_by_url = {}
+    for artifact in artifacts:
+        content = download_artifact(artifact, headers)
+        for row in parse_jsonl(content):
+            previous = rows_by_url.get(row["url"])
+            if previous is None or row["fetched_at"] > previous["fetched_at"]:
+                rows_by_url[row["url"]] = row
+            if len(rows_by_url) > MAX_PAGES:
+                raise RuntimeError(f"Combined GitHub artifacts exceed the {MAX_PAGES}-page limit.")
+    if not rows_by_url:
+        raise RuntimeError("The GitHub scrape artifacts contained no usable pages.")
+    return list(rows_by_url.values()), len(artifacts)
+
+
 def ensure_default_dataset():
-    if not DEFAULT_DATASET.exists():
-        return
     if app.state.pages:
+        return
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    github_repository = os.getenv("GITHUB_REPOSITORY", "")
+    if github_token or github_repository:
+        if not github_token or not github_repository:
+            app.state.knowledge_error = (
+                "Configure both GITHUB_TOKEN and GITHUB_REPOSITORY on the app server."
+            )
+            return
+        try:
+            pages, artifact_count = load_github_dataset()
+        except RuntimeError:
+            app.state.knowledge_error = (
+                "Automatic GitHub artifact loading failed. Check Render logs and the "
+                "GITHUB_TOKEN Actions read permission, or upload the JSONL file."
+            )
+            logger.exception("Could not load scraper pages from GitHub")
+            return
+        app.state.pages = pages
+        app.state.knowledge_source = f"GitHub Actions ({artifact_count} artifacts)"
+        app.state.knowledge_error = ""
+        logger.info("Loaded %s pages from %s", len(pages), app.state.knowledge_source)
+        return
+    if not DEFAULT_DATASET.exists():
         return
     try:
         app.state.pages = parse_jsonl(DEFAULT_DATASET.read_bytes())
@@ -136,6 +256,8 @@ def ensure_default_dataset():
         logger.exception("Could not load local scraper dataset")
         raise RuntimeError(f"Could not load local scraper dataset: {error}") from error
     logger.info("Loaded %s scraper pages from %s", len(app.state.pages), DEFAULT_DATASET)
+    app.state.knowledge_source = "local scrape artifact"
+    app.state.knowledge_error = ""
 
 
 @app.on_event("startup")
@@ -223,7 +345,11 @@ async def index():
 @app.get("/api/status")
 async def status():
     ensure_default_dataset()
-    return {"loaded_pages": len(app.state.pages)}
+    return {
+        "loaded_pages": len(app.state.pages),
+        "knowledge_source": app.state.knowledge_source,
+        "knowledge_error": app.state.knowledge_error,
+    }
 
 
 @app.get("/api/config")
@@ -239,6 +365,8 @@ async def upload_knowledge(
         raise HTTPException(status_code=415, detail="Choose a .jsonl or .ndjson artifact file.")
     pages = await load_jsonl(file)
     app.state.pages = pages
+    app.state.knowledge_source = "uploaded scrape artifact"
+    app.state.knowledge_error = ""
     await file.close()
     return {"loaded_pages": len(pages)}
 
@@ -248,7 +376,10 @@ async def interview(request: ChatRequest):
     ensure_default_dataset()
     pages = app.state.pages
     if not pages:
-        raise HTTPException(status_code=409, detail="Upload a scraper JSONL artifact first.")
+        raise HTTPException(
+            status_code=503 if app.state.knowledge_error else 409,
+            detail=app.state.knowledge_error or "Upload a scraper JSONL artifact first.",
+        )
     if not request.answer.strip():
         raise HTTPException(status_code=422, detail="Enter an interview response.")
 

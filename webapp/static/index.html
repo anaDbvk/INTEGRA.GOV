@@ -164,10 +164,12 @@
       .then((result) => {
         if (result?.loaded_pages) {
           setKnowledgeStatus(result.loaded_pages);
-          setFeedback(`Loaded ${result.loaded_pages.toLocaleString()} pages from the local scrape artifact.`);
+          setFeedback(`Loaded ${result.loaded_pages.toLocaleString()} pages from ${result.knowledge_source || "the scrape artifact"}.`);
+        } else if (result?.knowledge_error) {
+          setFeedback(result.knowledge_error, true);
         }
       })
-      .catch(() => {});
+      .catch(() => setFeedback("Could not check loaded scrape data. Check the app server logs.", true));
 
     function setFeedback(message, isError = false) {
       setupFeedback.textContent = message;
