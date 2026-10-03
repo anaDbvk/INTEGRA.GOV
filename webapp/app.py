@@ -17,6 +17,7 @@ logger = logging.getLogger("smartin_assistant")
 STATIC_DIR = Path(__file__).parent / "static"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_PAGES = 20_000
+DEFAULT_DATASET = Path(__file__).parent / "data" / "pl_gov_pages.jsonl"
 MAX_PAGE_TEXT = 100_000
 MAX_QUESTION_CHARS = 2_000
 MAX_HISTORY_MESSAGES = 12
@@ -94,8 +95,7 @@ def validate_page(row, line_number):
     }
 
 
-async def load_jsonl(upload: UploadFile):
-    data = await upload.read(MAX_UPLOAD_BYTES + 1)
+def parse_jsonl(data):
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 25 MB upload limit.")
     try:
@@ -119,6 +119,28 @@ async def load_jsonl(upload: UploadFile):
     if not pages:
         raise HTTPException(status_code=400, detail="The JSONL file contains no pages.")
     return pages
+
+
+async def load_jsonl(upload: UploadFile):
+    return parse_jsonl(await upload.read(MAX_UPLOAD_BYTES + 1))
+
+
+def ensure_default_dataset():
+    if not DEFAULT_DATASET.exists():
+        return
+    if app.state.pages:
+        return
+    try:
+        app.state.pages = parse_jsonl(DEFAULT_DATASET.read_bytes())
+    except (OSError, HTTPException) as error:
+        logger.exception("Could not load local scraper dataset")
+        raise RuntimeError(f"Could not load local scraper dataset: {error}") from error
+    logger.info("Loaded %s scraper pages from %s", len(app.state.pages), DEFAULT_DATASET)
+
+
+@app.on_event("startup")
+async def load_default_dataset():
+    ensure_default_dataset()
 
 
 def retrieve_pages(pages, query, limit=MAX_EVIDENCE_PAGES):
@@ -200,6 +222,7 @@ async def index():
 
 @app.get("/api/status")
 async def status():
+    ensure_default_dataset()
     return {"loaded_pages": len(app.state.pages)}
 
 
@@ -222,6 +245,7 @@ async def upload_knowledge(
 
 @app.post("/api/interview")
 async def interview(request: ChatRequest):
+    ensure_default_dataset()
     pages = app.state.pages
     if not pages:
         raise HTTPException(status_code=409, detail="Upload a scraper JSONL artifact first.")

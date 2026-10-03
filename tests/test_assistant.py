@@ -1,6 +1,8 @@
 import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -29,6 +31,12 @@ def jsonl_page(
 class AssistantTests(unittest.TestCase):
     def setUp(self):
         app.state.pages = []
+        self.tempdir = tempfile.TemporaryDirectory()
+        dataset = Path(self.tempdir.name) / "missing.jsonl"
+        self.dataset_patch = patch("webapp.app.DEFAULT_DATASET", dataset)
+        self.dataset_patch.start()
+        self.addCleanup(self.dataset_patch.stop)
+        self.addCleanup(self.tempdir.cleanup)
         self.client = TestClient(app)
         self.env = patch.dict(
             os.environ,
@@ -55,6 +63,13 @@ class AssistantTests(unittest.TestCase):
             self.client.get("/api/status").json(),
             {"loaded_pages": 0},
         )
+
+    def test_status_auto_loads_local_dataset(self):
+        dataset = Path(self.tempdir.name) / "missing.jsonl"
+        dataset.write_text(json.dumps(jsonl_page()) + "\n", encoding="utf-8")
+        response = self.client.get("/api/status")
+        self.assertEqual(response.json(), {"loaded_pages": 1})
+        self.assertEqual(app.state.pages[0]["title"], "Report death - Gov.pl")
 
     def test_upload_rejects_non_http_url_and_keeps_previous_knowledge(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]

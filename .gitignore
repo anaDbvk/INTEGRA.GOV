@@ -2,3 +2,4 @@ __pycache__/
 *.py[cod]
 .env
 pl_gov_pages.jsonl
+webapp/data/*.jsonl

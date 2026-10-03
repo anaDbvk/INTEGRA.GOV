@@ -58,6 +58,12 @@ clears/replaces them. The assistant does not automatically download artifacts
 from GitHub; download `pl_gov_pages` from a workflow run, extract
 `pl_gov_pages.jsonl`, then upload it in the UI.
 
+For a local preview, place a merged JSONL file at
+`webapp/data/pl_gov_pages.jsonl`; the backend loads it into memory on startup
+and the UI shows the loaded page count. This local data file is git-ignored and
+is not included in commits or deployments. Otherwise, use the artifact upload
+control in the UI.
+
 Run it locally from the repository root:
 
 ```powershell
