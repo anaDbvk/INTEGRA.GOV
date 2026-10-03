@@ -267,13 +267,18 @@ class AssistantTests(unittest.TestCase):
         page = validate_page(
             jsonl_page(
                 title="Zawarcie małżeństwa",
-                text="Zawarcie małżeństwa odbywa się w urzędzie stanu cywilnego.",
+                text=(
+                    "Zawarcie małżeństwa odbywa się w urzędzie stanu cywilnego. "
+                    "Dokumenty potrzebne przy małżeństwie należy złożyć w urzędzie."
+                ),
                 url="https://www.gov.pl/web/gov/slub",
             ),
             1,
         )
         self.assertEqual(len(retrieve_pages([page], "malzenstwo")), 1)
         self.assertEqual(len(retrieve_pages([page], "ślub w urzędzie")), 1)
+        matches = retrieve_pages([page], "malzenstwo")
+        self.assertIn("małżeństwie", matches[0]["text"])
 
     def test_interview_returns_source_cited_journey_blocks(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]
