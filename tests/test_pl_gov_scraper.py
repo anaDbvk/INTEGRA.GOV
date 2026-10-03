@@ -60,10 +60,12 @@ class ScraperTests(unittest.TestCase):
 
     def test_all_warsaw_district_sources_are_configured(self):
         self.assertEqual(len(WARSAW_DISTRICTS), 18)
-        for district in WARSAW_DISTRICTS:
+        self.assertEqual(WARSAW_DISTRICTS["praga_poludnie"], "pragapld")
+        self.assertEqual(WARSAW_DISTRICTS["praga_polnoc"], "pragapn")
+        for district, host in WARSAW_DISTRICTS.items():
             source = f"warsaw_{district}"
             self.assertIn(source, SOURCES)
-            self.assertTrue(SOURCES[source].startswith(f"https://{district}.um.warszawa.pl"))
+            self.assertTrue(SOURCES[source].startswith(f"https://{host}.um.warszawa.pl"))
 
     def test_page_classification_and_polish_date_parsing(self):
         self.assertEqual(

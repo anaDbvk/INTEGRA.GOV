@@ -8,7 +8,7 @@ on:
         default: "100"
       sources_only:
         description: "Comma-separated source names (empty = all)"
-        default: "gov.pl,mos,udsc,biznes,podatki,zus,nfz,migrant,krakow,warsaw,warsaw19115,warsaw_bemowo,warsaw_bialoleka,warsaw_bielany,warsaw_mokotow,warsaw_ochota,warsaw_pragapoludnie,warsaw_pragapolnoc,warsaw_rembertow,warsaw_srodmiescie,warsaw_targowek,warsaw_ursus,warsaw_ursynow,warsaw_wawer,warsaw_wesola,warsaw_wilanow,warsaw_wlochy,warsaw_wola,warsaw_zoliborz"
+        default: "gov.pl,mos,udsc,biznes,podatki,zus,nfz,migrant,krakow,warsaw,warsaw19115,warsaw_bemowo,warsaw_bialoleka,warsaw_bielany,warsaw_mokotow,warsaw_ochota,warsaw_praga_poludnie,warsaw_praga_polnoc,warsaw_rembertow,warsaw_srodmiescie,warsaw_targowek,warsaw_ursus,warsaw_ursynow,warsaw_wawer,warsaw_wesola,warsaw_wilanow,warsaw_wlochy,warsaw_wola,warsaw_zoliborz"
   schedule:
     - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
 

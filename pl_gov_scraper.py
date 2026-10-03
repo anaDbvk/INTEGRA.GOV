@@ -45,14 +45,28 @@ SOURCES = {
     "krakow": "https://www.krakow.pl",
 }
 
-WARSAW_DISTRICTS = (
-    "bemowo", "bialoleka", "bielany", "mokotow", "ochota",
-    "pragapoludnie", "pragapolnoc", "rembertow", "srodmiescie",
-    "targowek", "ursus", "ursynow", "wawer", "wesola", "wilanow",
-    "wlochy", "wola", "zoliborz",
-)
-for district in WARSAW_DISTRICTS:
-    SOURCES[f"warsaw_{district}"] = f"https://{district}.um.warszawa.pl"
+WARSAW_DISTRICTS = {
+    "bemowo": "bemowo",
+    "bialoleka": "bialoleka",
+    "bielany": "bielany",
+    "mokotow": "mokotow",
+    "ochota": "ochota",
+    "praga_poludnie": "pragapld",
+    "praga_polnoc": "pragapn",
+    "rembertow": "rembertow",
+    "srodmiescie": "srodmiescie",
+    "targowek": "targowek",
+    "ursus": "ursus",
+    "ursynow": "ursynow",
+    "wawer": "wawer",
+    "wesola": "wesola",
+    "wilanow": "wilanow",
+    "wlochy": "wlochy",
+    "wola": "wola",
+    "zoliborz": "zoliborz",
+}
+for district, host in WARSAW_DISTRICTS.items():
+    SOURCES[f"warsaw_{district}"] = f"https://{host}.um.warszawa.pl"
 
 GOV_SERVICE_SEEDS = (
     "https://www.gov.pl/web/gov/uslugi-dla-obywatela",
