@@ -257,9 +257,14 @@ class AssistantTests(unittest.TestCase):
                                 "outcome": "journey",
                                 "message": "Here is a suggested journey.",
                                 "question": "",
+                                "needs_official_help": True,
                                 "journey_blocks": [{
                                     "title": "Register the death",
                                     "action": "Report it to the civil registry office.",
+                                    "where": "Civil registry office",
+                                    "documents": ["Death certificate", 7],
+                                    "fee": "No fee stated.",
+                                    "deadline": "Within three days.",
                                     "source_ids": ["S1"],
                                 }],
                             },
@@ -278,6 +283,9 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["outcome"], "journey")
         self.assertEqual(response.json()["journey_blocks"][0]["source_ids"], ["S1"])
+        self.assertEqual(response.json()["needs_official_help"], True)
+        self.assertEqual(response.json()["journey_blocks"][0]["documents"], ["Death certificate"])
+        self.assertEqual(response.json()["journey_blocks"][0]["where"], "Civil registry office")
         self.assertEqual(response.json()["sources"][0]["url"], "https://www.gov.pl/web/gov/zglos-zgon")
 
     def test_interview_can_ask_follow_up_when_evidence_is_not_yet_relevant(self):

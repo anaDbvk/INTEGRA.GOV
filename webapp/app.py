@@ -678,12 +678,21 @@ async def interview(request: ChatRequest):
                         status_code=502,
                         detail="The assistant returned a journey step without valid source citations.",
                     )
+            for block in journey_blocks:
+                block["documents"] = [
+                    item[:300] for item in block.get("documents", [])
+                    if isinstance(item, str)
+                ][:10]
+                for key in ("where", "fee", "deadline"):
+                    value = block.get(key)
+                    block[key] = value[:300] if isinstance(value, str) else ""
     if outcome != "journey":
         journey_blocks = []
     return {
         "outcome": outcome,
         "message": message,
         "question": question if outcome == "interview" else "",
+        "needs_official_help": bool(tool_result.get("needs_official_help", False)),
         "journey_blocks": journey_blocks,
         "sources": sources,
     }

@@ -187,7 +187,7 @@
           link.rel = "noopener noreferrer";
           link.textContent = `[${source.id}] ${source.title}`;
           const detail = document.createElement("small");
-          detail.textContent = ` · ${source.source || "source"}${source.fetched_at ? ` · fetched ${source.fetched_at}` : ""}`;
+          detail.textContent = ` · ${source.source || "source"}${source.fetched_at ? ` · fetched ${source.fetched_at.slice(0, 10)}` : ""}`;
           link.appendChild(detail);
           list.appendChild(link);
         }
@@ -212,6 +212,12 @@
       const intro = document.createElement("p");
       intro.textContent = result.message;
       screen.append(icon, title, intro);
+      if (result.needs_official_help) {
+        const warning = document.createElement("p");
+        warning.style.cssText = "background:#fff4e5;border:1px solid #f3d19c;border-radius:10px;padding:10px;font-size:12px;color:#7a4b00";
+        warning.textContent = "This situation may need an official or professional. Please confirm with the responsible office.";
+        screen.appendChild(warning);
+      }
 
       const sourceById = new Map((result.sources || []).map((source) => [source.id, source]));
       for (const [index, block] of result.journey_blocks.entries()) {
@@ -224,6 +230,18 @@
         action.style.cssText = "margin:0;color:#526071;font-size:13px;line-height:1.6;white-space:pre-wrap";
         action.textContent = block.action;
         card.append(heading, action);
+        const facts = [
+          block.where && `Where: ${block.where}`,
+          block.documents?.length && `Documents: ${block.documents.join(", ")}`,
+          block.fee && `Fee: ${block.fee}`,
+          block.deadline && `Deadline: ${block.deadline}`,
+        ].filter(Boolean);
+        if (facts.length) {
+          const meta = document.createElement("p");
+          meta.style.cssText = "margin:8px 0 0;color:#182230;font-size:12px;line-height:1.6;white-space:pre-wrap";
+          meta.textContent = facts.join("\n");
+          card.appendChild(meta);
+        }
         for (const sourceId of block.source_ids) {
           const source = sourceById.get(sourceId);
           if (!source) continue;
@@ -233,6 +251,11 @@
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = `[${source.id}] ${source.title}`;
+          if (source.fetched_at) {
+            const detail = document.createElement("small");
+            detail.textContent = ` · fetched ${source.fetched_at.slice(0, 10)}`;
+            link.appendChild(detail);
+          }
           card.appendChild(link);
         }
         screen.appendChild(card);
