@@ -61,6 +61,11 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("SmartIN Assistant", response.text)
         self.assertIn("sent to Anthropic", response.text)
+        self.assertIn("Enter to send", response.text)
+        self.assertIn('event.key === "Enter"', response.text)
+        self.assertIn("loaded from the latest GitHub scrape", response.text)
+        self.assertNotIn('type="file"', response.text)
+        self.assertNotIn("Load assistant knowledge", response.text)
         self.assertNotIn("test-api-key", response.text)
 
     def test_api_is_available_without_a_shared_access_token(self):

@@ -48,26 +48,26 @@ it does not remove names or guarantee that all personal data is redacted.
 
 ## SmartIN assistant draft
 
-`webapp/` contains a guided-interview UI and a small FastAPI backend. The
-assistant asks one follow-up at a time, then returns an ordered set of
+`webapp/` contains a chat-only guided-interview UI and a small FastAPI backend.
+The assistant asks one follow-up at a time, then returns an ordered set of
 source-cited journey blocks. It interviews in English, Polish, or Ukrainian
-and searches an uploaded scraper JSONL artifact locally. Only the conversation
-and up to five matching page excerpts are sent to Anthropic. Uploaded pages
-live in process memory only: restarting the app or loading another artifact
-clears/replaces them. By default, you can download `pl_gov_pages` from a
-workflow run, extract `pl_gov_pages.jsonl`, then upload it in the UI.
+and searches scraper JSONL pages held in server memory. Only the conversation
+and up to five matching page excerpts are sent to Anthropic. Pages are loaded
+from GitHub Actions when configured, or from a local JSONL file for preview.
 
 For a local preview, place a merged JSONL file at
 `webapp/data/pl_gov_pages.jsonl`; the backend loads it into memory on startup
 and the UI shows the loaded page count. This local data file is git-ignored and
-is not included in commits or deployments. Alternatively, configure
+is not included in commits or deployments. For a deployed instance, configure
 `GITHUB_TOKEN` and `GITHUB_REPOSITORY=anaDbvk/SmartIN` on the backend. At
 startup, the app fetches unexpired `pl_gov_pages` artifacts from recent
 successful runs of `scrape.yml`, merges duplicate URLs, and loads the pages
-without requiring a browser upload. The GitHub token must have read access to
-Actions artifacts for this private repository. `GITHUB_WORKFLOW_FILE` can
+without requiring a browser upload. Restarting the app reloads the pages. The
+GitHub token must have Actions artifact read access for this private
+repository. `GITHUB_WORKFLOW_FILE` can
 override the workflow filename; it defaults to `scrape.yml`. If those GitHub
-settings are absent, the UI's artifact upload remains available.
+settings are absent and there is no local JSONL file, the assistant reports
+that its sources are unavailable; it does not offer a browser-upload control.
 
 Run it locally from the repository root:
 
@@ -83,8 +83,8 @@ python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000`. The app loads scrape artifacts automatically.
 Never put the Anthropic key or GitHub token in the UI or browser; they are read
 only by the backend. Use a currently enabled model ID from your Anthropic
-account. This draft has no
-built-in sign-in: when deployed, put it behind your platform's authentication,
+account. This draft has no built-in sign-in: when deployed, put it behind your
+platform's authentication,
 HTTPS, and request/cost limits. Do not expose the backend directly to the
 public internet without those controls.
 

@@ -14,41 +14,32 @@
       font-synthesis: none;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; }
-    button, input { font: inherit; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; }
+    button, input, select, textarea { font: inherit; }
     button { cursor: pointer; }
-    .shell { width: min(100% - 32px, 1040px); margin: 32px auto; }
-    .topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 14px; background: #135d50; color: white; font-weight: 800; letter-spacing: -.04em; }
-    h1 { font-size: 20px; margin: 0; letter-spacing: -.03em; }
-    .subtitle { color: #687586; font-size: 13px; margin-top: 3px; }
-    .status { display: inline-flex; align-items: center; gap: 8px; color: #526071; font-size: 13px; }
+    .shell { width: min(100%, 900px); height: 100vh; height: 100dvh; margin: 0 auto; padding: 20px; display: flex; }
+    .chat-card { width: 100%; height: 100%; min-height: 0; max-height: 960px; margin: auto; display: flex; flex-direction: column; overflow: hidden; background: white; border: 1px solid #e4e9ef; border-radius: 18px; box-shadow: 0 8px 32px #1d31420b; }
+    .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 20px; border-bottom: 1px solid #edf0f4; }
+    .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .mark { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border-radius: 13px; background: #135d50; color: white; font-weight: 800; letter-spacing: -.04em; }
+    .brand-title { font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
+    .subtitle { color: #687586; font-size: 12px; margin-top: 3px; }
+    .chat-controls { display: flex; align-items: center; justify-content: flex-end; gap: 13px; }
+    .status { display: inline-flex; align-items: center; gap: 7px; color: #526071; font-size: 11px; }
+    .status-text { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dot { width: 8px; height: 8px; background: #b3bdc8; border-radius: 50%; }
     .dot.ready { background: #13895c; }
-    .layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 18px; align-items: start; }
-    .panel, .chat-card { background: white; border: 1px solid #e4e9ef; border-radius: 18px; box-shadow: 0 8px 32px #1d31420b; }
-    .panel { padding: 20px; }
-    .panel h2 { font-size: 14px; margin: 0 0 8px; }
-    .muted { color: #687586; font-size: 13px; line-height: 1.5; }
-    .field-label { display: block; font-size: 12px; font-weight: 650; margin: 18px 0 7px; }
-    input[type="password"], input[type="file"] { width: 100%; color: #344054; font-size: 13px; }
-    input[type="password"] { height: 40px; padding: 0 11px; border: 1px solid #d7dfe8; border-radius: 9px; }
-    input[type="file"] { padding: 10px; border: 1px dashed #b9c5d2; border-radius: 10px; background: #fbfcfe; }
-    .button { width: 100%; min-height: 40px; border: 0; border-radius: 9px; padding: 9px 12px; font-weight: 650; font-size: 13px; }
+    .status.error { color: #ad3434; }
+    .language { height: 34px; padding: 0 8px; border: 1px solid #d7dfe8; border-radius: 8px; background: white; color: #344054; font-size: 12px; }
+    .button { min-height: 40px; border: 0; border-radius: 9px; padding: 9px 12px; font-weight: 650; font-size: 13px; }
     .primary { color: white; background: #135d50; }
     .primary:hover { background: #0e4c41; }
     .secondary { color: #344054; background: #edf1f5; }
     .secondary:hover { background: #e3e8ef; }
     .button:disabled { cursor: wait; opacity: .55; }
-    .notice { margin-top: 18px; padding: 11px 12px; border-radius: 10px; background: #fff8e8; color: #785315; font-size: 12px; line-height: 1.5; }
-    .feedback { min-height: 18px; margin: 9px 0 0; color: #596879; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-    .feedback.error { color: #ad3434; }
-    .chat-card { min-height: 620px; display: flex; flex-direction: column; overflow: hidden; }
-    .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; border-bottom: 1px solid #edf0f4; }
-    .chat-head h2 { margin: 0; font-size: 14px; }
     .clear { color: #596879; border: 0; background: transparent; font-size: 12px; }
-    .messages { flex: 1; max-height: 590px; min-height: 400px; overflow-y: auto; padding: 20px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .messages { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; }
     .welcome { max-width: 520px; margin: 32px auto; text-align: center; }
     .welcome-icon { width: 48px; height: 48px; margin: 0 auto 15px; display: grid; place-items: center; border-radius: 16px; color: #135d50; background: #e8f4f0; font-size: 22px; }
     .welcome h3 { margin: 0 0 8px; font-size: 18px; }
@@ -64,68 +55,52 @@
     .source { display: block; color: #17665a; text-decoration: none; font-size: 11px; line-height: 1.4; }
     .source:hover { text-decoration: underline; }
     .source small { color: #718091; }
-    .composer { padding: 14px 18px 17px; border-top: 1px solid #edf0f4; }
-    .compose-row { display: flex; align-items: end; gap: 9px; }
-    .question { min-height: 44px; max-height: 110px; flex: 1; resize: vertical; padding: 11px 12px; border: 1px solid #d7dfe8; border-radius: 10px; font: inherit; font-size: 13px; }
-    .send { min-height: 42px; width: 76px; flex: 0 0 76px; }
-    .footnote { margin: 9px 0 0; color: #8792a0; font-size: 11px; text-align: center; }
-    @media (max-width: 760px) {
-      .shell { width: min(100% - 20px, 620px); margin: 14px auto; }
-      .layout { grid-template-columns: 1fr; }
-      .chat-card { min-height: 540px; }
-      .messages { min-height: 320px; }
-      .topline { align-items: flex-start; }
-      .status { font-size: 11px; text-align: right; }
+    .composer { padding: 12px 18px 14px; border-top: 1px solid #edf0f4; }
+    .compose-row { display: flex; align-items: center; gap: 9px; }
+    .question { min-height: 44px; max-height: 120px; flex: 1; resize: none; padding: 11px 12px; border: 1px solid #d7dfe8; border-radius: 10px; font: inherit; font-size: 13px; }
+    .send { min-height: 42px; flex: 0 0 auto; }
+    .footnote { margin: 8px 0 0; color: #8792a0; font-size: 10px; text-align: center; }
+    @media (max-width: 560px) {
+      .shell { padding: 0; }
+      .chat-card { max-height: none; border: 0; border-radius: 0; }
+      .chat-head { align-items: flex-start; padding: 12px; }
+      .chat-controls { gap: 8px; flex-wrap: wrap; }
+      .status-text { max-width: 92px; }
+      .messages { padding: 14px; }
+      .composer { padding: 10px 12px 12px; }
+      .send { width: 44px; overflow: hidden; padding: 0; font-size: 0; }
+      .send::after { content: "↑"; font-size: 20px; }
+      .welcome { margin: 22px auto; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <header class="topline">
-      <div class="brand">
-        <div class="mark" aria-hidden="true">S</div>
-        <div>
-          <h1>SmartIN Assistant</h1>
-          <div class="subtitle">Polish public services &amp; local events</div>
-        </div>
-      </div>
-      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Knowledge not loaded</span></div>
-    </header>
-
-    <div class="layout">
-      <aside class="panel" aria-label="Assistant setup">
-        <h2>Load assistant knowledge</h2>
-        <p class="muted">The preview can start with the latest locally loaded scraper pages, or you can replace them with another GitHub Actions artifact.</p>
-
-        <label class="field-label" for="language">Interview language</label>
-        <select id="language" style="width:100%;height:40px;padding:0 10px;border:1px solid #d7dfe8;border-radius:9px;background:white;color:#344054">
-          <option value="en">English</option>
-          <option value="pl">Polski</option>
-          <option value="uk">Українська</option>
-        </select>
-
-        <label class="field-label" for="artifactFile">Scraped pages (.jsonl)</label>
-        <input id="artifactFile" type="file" accept=".jsonl,.ndjson,application/json">
-        <button id="uploadButton" class="button primary" type="button" style="margin-top:9px">Load artifact</button>
-        <p id="setupFeedback" class="feedback" role="status" aria-live="polite"></p>
-
-        <div class="notice">
-          <strong>Privacy note:</strong> scraped text is redacted on a best-effort basis. Your question and selected page excerpts are sent to Anthropic to generate an answer. Don’t enter personal or sensitive information.
-        </div>
-        <p class="muted" style="margin:13px 0 0">Pages loaded from the local artifact are cached in server memory. A new scrape artifact can replace them; GitHub retains its original artifact for the configured retention period.</p>
-        <p class="muted">This draft has no built-in sign-in. Deploy it only behind your platform’s authentication and request limits.</p>
-      </aside>
-
       <section class="chat-card" aria-label="Chat with SmartIN">
         <header class="chat-head">
-          <h2>Tell us what you’re trying to do</h2>
-          <button id="clearButton" class="clear" type="button">Clear chat</button>
+          <div class="brand">
+            <div class="mark" aria-hidden="true">S</div>
+            <div>
+              <div class="brand-title">SmartIN Assistant</div>
+              <div class="subtitle">Polish public services &amp; local events</div>
+            </div>
+          </div>
+          <div class="chat-controls">
+            <div class="status" role="status" aria-live="polite"><span id="statusDot" class="dot"></span><span id="statusText" class="status-text">Loading sources…</span></div>
+            <label class="sr-only" for="language">Interview language</label>
+            <select id="language" class="language" aria-label="Interview language">
+              <option value="en">English</option>
+              <option value="pl">Polski</option>
+              <option value="uk">Українська</option>
+            </select>
+            <button id="clearButton" class="clear" type="button">Clear</button>
+          </div>
         </header>
         <div id="messages" class="messages" aria-live="polite">
           <div class="welcome" id="welcome">
             <div class="welcome-icon" aria-hidden="true">✦</div>
             <h3>Let’s find your next steps</h3>
-            <p>Describe what you need help with. The assistant will ask a few focused questions, then suggest a step-by-step journey using the loaded official information, with source links.</p>
+            <p>Describe what you need help with. I’ll ask a few focused questions, then suggest next steps using official information loaded from the latest GitHub scrape, with source links.</p>
             <div class="suggestions">
               <button class="suggestion" type="button">I need help applying for a residence permit.</button>
               <button class="suggestion" type="button">I want to understand health insurance in Poland.</button>
@@ -136,23 +111,20 @@
         <form id="chatForm" class="composer">
           <div class="compose-row">
             <textarea id="question" class="question" rows="1" maxlength="2000" placeholder="Describe what you need help with…" aria-label="Your response"></textarea>
-            <button id="sendButton" class="button primary send" type="submit">Continue</button>
+            <button id="sendButton" class="button primary send" type="submit" aria-label="Send message">Send</button>
           </div>
-          <p class="footnote">Informational only. Confirm time-sensitive requirements with the responsible official office.</p>
+          <p class="footnote">Don’t share sensitive personal information. Your message and relevant source excerpts are sent to Anthropic. Informational only—confirm current requirements with the responsible office. Enter to send · Shift+Enter for a new line.</p>
         </form>
       </section>
-    </div>
   </main>
 
   <script>
-    const setupFeedback = document.getElementById("setupFeedback");
     const statusText = document.getElementById("statusText");
     const statusDot = document.getElementById("statusDot");
     const messages = document.getElementById("messages");
     const welcome = document.getElementById("welcome");
     const questionInput = document.getElementById("question");
     const sendButton = document.getElementById("sendButton");
-    const uploadButton = document.getElementById("uploadButton");
     const history = [];
     let embedParentOrigin = "";
     fetch("/api/config")
@@ -163,22 +135,27 @@
       .then((response) => response.ok ? response.json() : null)
       .then((result) => {
         if (result?.loaded_pages) {
-          setKnowledgeStatus(result.loaded_pages);
-          setFeedback(`Loaded ${result.loaded_pages.toLocaleString()} pages from ${result.knowledge_source || "the scrape artifact"}.`);
+          setKnowledgeStatus(result.loaded_pages, result.knowledge_source);
         } else if (result?.knowledge_error) {
-          setFeedback(result.knowledge_error, true);
+          setKnowledgeError(result.knowledge_error);
+        } else {
+          setKnowledgeError("No scrape pages are loaded. Check the server’s GitHub artifact settings.");
         }
       })
-      .catch(() => setFeedback("Could not check loaded scrape data. Check the app server logs.", true));
+      .catch(() => setKnowledgeError("Could not check loaded scrape data. Check the app server logs."));
 
-    function setFeedback(message, isError = false) {
-      setupFeedback.textContent = message;
-      setupFeedback.classList.toggle("error", isError);
+    function setKnowledgeStatus(count, source = "") {
+      const origin = source.startsWith("GitHub Actions") ? "GitHub" : source.startsWith("local") ? "local" : "";
+      statusText.textContent = `${count.toLocaleString()} pages${origin ? ` · ${origin}` : ""}`;
+      statusDot.classList.toggle("ready", Boolean(count));
+      document.querySelector(".status").classList.remove("error");
     }
 
-    function setKnowledgeStatus(count) {
-      statusText.textContent = count ? `${count.toLocaleString()} pages loaded` : "Knowledge not loaded";
-      statusDot.classList.toggle("ready", Boolean(count));
+    function setKnowledgeError(message) {
+      statusText.textContent = "Sources unavailable";
+      statusDot.classList.remove("ready");
+      document.querySelector(".status").classList.add("error");
+      addMessage("assistant", `${message}\n\nCheck the GitHub artifact settings on the app server, then refresh this page.`);
     }
 
     async function api(path, options = {}) {
@@ -277,28 +254,8 @@
       }
     }
 
-    uploadButton.addEventListener("click", async () => {
-      const file = document.getElementById("artifactFile").files[0];
-      if (!file) {
-        setFeedback("Choose a downloaded JSONL artifact first.", true);
-        return;
-      }
-      uploadButton.disabled = true;
-      setFeedback("Loading pages into temporary server memory…");
-      try {
-        const form = new FormData();
-        form.append("file", file);
-        const result = await api("/api/knowledge", { method: "POST", body: form });
-        setKnowledgeStatus(result.loaded_pages);
-        setFeedback(`Loaded ${result.loaded_pages.toLocaleString()} pages. You can start asking questions.`);
-      } catch (error) {
-        setFeedback(error.message, true);
-      } finally {
-        uploadButton.disabled = false;
-      }
-    });
-
-    document.getElementById("chatForm").addEventListener("submit", async (event) => {
+    const chatForm = document.getElementById("chatForm");
+    chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const question = questionInput.value.trim();
       if (!question) return;
@@ -344,10 +301,18 @@
       questionInput.focus();
     });
 
+    questionInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        if (!sendButton.disabled) chatForm.requestSubmit();
+      }
+    });
+
     document.querySelectorAll(".suggestion").forEach((button) => {
       button.addEventListener("click", () => {
         questionInput.value = button.textContent;
         questionInput.focus();
+        chatForm.requestSubmit();
       });
     });
   </script>
