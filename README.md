@@ -11,8 +11,9 @@ The default run covers official national sources (`gov.pl`, `mos`, `udsc`,
 `biznes`, `podatki`, `zus`, and `nfz`), the migrant information portal, and
 official municipal sources for Kraków and Warsaw. Government-service seeds
 include citizen services, reporting a death, address registration, PESEL, and
-civil registry record copies. Kraków's official district directory and events
-calendar and each of Warsaw's 18 official district portals are seeded. The
+civil registry record copies. Kraków's official district directory, events
+calendar, and 18 district portals, plus each of Warsaw's 18 official district
+portals, are seeded. The
 crawler follows relevant same-site links from those pages and observes each
 site's `robots.txt`; a disallowed or unreachable site is skipped, not bypassed.
 
@@ -22,7 +23,7 @@ sources. For example:
 
 ```text
 MAX_PAGES=100
-SOURCES_ONLY=gov.pl,krakow,warsaw,warsaw_mokotow,warsaw_wola
+SOURCES_ONLY=gov.pl,krakow,krakow_district_01,warsaw,warsaw_mokotow,warsaw_wola
 ```
 
 The JSONL rows include a `page_type`, source URL, extracted text, related

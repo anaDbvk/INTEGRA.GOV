@@ -45,6 +45,10 @@ SOURCES = {
     "krakow": "https://www.krakow.pl",
 }
 
+KRAKOW_DISTRICTS = tuple(range(1, 19))
+for district in KRAKOW_DISTRICTS:
+    SOURCES[f"krakow_district_{district:02d}"] = f"https://dzielnica{district}.krakow.pl"
+
 WARSAW_DISTRICTS = {
     "bemowo": "bemowo",
     "bialoleka": "bialoleka",
@@ -88,6 +92,10 @@ SEED_URLS = {
         "https://um.warszawa.pl/urzad/urzedy-dzielnic",
     ),
 }
+for district in KRAKOW_DISTRICTS:
+    SEED_URLS[f"krakow_district_{district:02d}"] = (
+        SOURCES[f"krakow_district_{district:02d}"] + "/",
+    )
 for district in WARSAW_DISTRICTS:
     district_base = SOURCES[f"warsaw_{district}"]
     SEED_URLS[f"warsaw_{district}"] = (
@@ -99,6 +107,8 @@ OFFICIAL_PROCESS_SOURCES = {
     "gov.pl", "mos", "udsc", "biznes", "podatki", "zus", "nfz",
 }
 CITY_SOURCES = {"krakow", "warsaw", "warsaw19115"} | {
+    f"krakow_district_{district:02d}" for district in KRAKOW_DISTRICTS
+} | {
     f"warsaw_{district}" for district in WARSAW_DISTRICTS
 }
 EVENT_RE = re.compile(
@@ -173,6 +183,8 @@ def page_type(source, url, title):
     haystack = f"{url} {title}"
     if source in CITY_SOURCES and EVENT_RE.search(haystack):
         return "event"
+    if source.startswith("krakow_district_"):
+        return "district_info"
     if source in CITY_SOURCES and DISTRICT_RE.search(haystack):
         return "district_info"
     if source in OFFICIAL_PROCESS_SOURCES and PROCESS_RE.search(haystack):
@@ -225,6 +237,8 @@ def links_to_follow(source, page_url, links, base):
                 (bool(DISTRICT_RE.search(target_path)) if in_district_directory else False)
                 or bool(EVENT_RE.search(f"{target_path} {link_text}"))
             )
+        elif source.startswith("krakow_district_"):
+            should_follow = bool(EVENT_RE.search(f"{target_path} {link_text}"))
         elif source == "warsaw":
             in_calendar = "kalendar" in page_path
             in_district_directory = "urzedy-dzielnic" in page_path or "dzielnic" in page_path

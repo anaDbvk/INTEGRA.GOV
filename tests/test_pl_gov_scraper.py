@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from pl_gov_scraper import (
+    KRAKOW_DISTRICTS,
     UA,
     WARSAW_DISTRICTS,
     SOURCES,
@@ -68,6 +69,14 @@ class ScraperTests(unittest.TestCase):
             source = f"warsaw_{district}"
             self.assertIn(source, SOURCES)
             self.assertTrue(SOURCES[source].startswith(f"https://{host}.um.warszawa.pl"))
+
+    def test_all_krakow_district_sources_are_configured(self):
+        self.assertEqual(KRAKOW_DISTRICTS, tuple(range(1, 19)))
+        for district in KRAKOW_DISTRICTS:
+            source = f"krakow_district_{district:02d}"
+            self.assertEqual(
+                SOURCES[source], f"https://dzielnica{district}.krakow.pl"
+            )
 
     def test_page_classification_and_polish_date_parsing(self):
         self.assertEqual(
