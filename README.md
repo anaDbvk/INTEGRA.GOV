@@ -158,6 +158,13 @@ step-by-step progress, in-app reminders, category browsing and display
 preferences. The static interface is served by the same app; no
 separate frontend hosting is needed.
 
+The whole interface is translated into English, Polish and Ukrainian
+(`webapp/static/i18n.js`). On first visit the language follows the phone's
+language, otherwise English; users can switch it with the globe button on the
+login screen or in Profile › Preferences. The choice is saved in the browser,
+and the assistant answers in the same language. Official Polish terms (PESEL,
+NFZ, ZUS) stay untranslated.
+
 ### Supabase setup
 
 Run `supabase/schema.sql` first if it has not already been applied, then run

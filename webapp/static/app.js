@@ -15,7 +15,7 @@ const state = {
   stepIndex: 0,
   alerts: [],
   tab: "active",
-  language: "en",
+  language: detectLanguage(),
   loginError: "",
   loginStep: "start",
   openAcc: "prefs",
@@ -25,6 +25,38 @@ const state = {
   reminderJourney: "",
   busy: false,
 };
+
+const LANG_KEY = "smartin_lang";
+function detectLanguage() {
+  const supported = ["en", "pl", "uk"];
+  let saved = null;
+  try { saved = localStorage.getItem(LANG_KEY); } catch { /* storage unavailable */ }
+  if (supported.includes(saved)) return saved;
+  const wanted = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"]);
+  for (const tag of wanted) {
+    const base = String(tag || "").toLowerCase().split("-")[0];
+    if (supported.includes(base)) return base;
+  }
+  return "en";
+}
+function t(key, vars = {}) {
+  const dict = window.I18N || {};
+  let value = (dict[state.language] || {})[key] ?? (dict.en || {})[key] ?? key;
+  if (value && typeof value === "object") {
+    const n = Number(vars.n ?? vars.count ?? 0);
+    let cat = "other";
+    try { cat = new Intl.PluralRules(state.language).select(n); } catch { cat = n === 1 ? "one" : "other"; }
+    value = value[cat] ?? value.other;
+  }
+  return String(value).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+}
+function setLanguage(lang) {
+  if (!["en", "pl", "uk"].includes(lang)) return;
+  state.language = lang;
+  try { localStorage.setItem(LANG_KEY, lang); } catch { /* storage unavailable */ }
+  root.lang = lang;
+  render();
+}
 
 const PREFS_KEY = "smartin_prefs";
 const prefs = Object.assign(
@@ -40,6 +72,7 @@ function applyPrefs() {
   localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
 }
 applyPrefs();
+root.lang = state.language;
 
 const ICONS = {
   flag: "M5 21V4M5 4h11l-2 4 2 4H5",
@@ -110,13 +143,13 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, body, headers, credentials: "same-origin" });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.detail || `Request failed (${response.status}).`);
+    const error = new Error(payload.detail || t("err.request", { code: response.status }));
     error.status = response.status;
     if (response.status === 401 && path !== "/api/session") {
       state.authenticated = false;
       state.recoveryAvailable = true;
       state.loginStep = "phone";
-      state.loginError = "Your 15-day inactive session expired. Enter the same number on this browser to restore your private progress.";
+      state.loginError = t("err.expired");
       go("login");
     }
     throw error;
@@ -126,11 +159,11 @@ async function api(path, options = {}) {
 
 /* ---------- helpers ---------- */
 const FOCUS = {
-  first: { label: "First steps", icon: "flag", c: "#2A5BD7", t: "#E6EEFD", words: /pesel|residen|permit|registr|visa|passport|document|arriv|first/i },
-  housing: { label: "Housing", icon: "home", c: "#EE7F3A", t: "#FDEDE2", words: /rent|flat|apartment|housing|landlord|lease|address|meldun/i },
-  finance: { label: "Finance", icon: "wallet", c: "#52771F", t: "#EAF1DF", words: /bank|tax|pit|money|finance|zus|salary|account|income/i },
-  health: { label: "Health", icon: "heart", c: "#C73E38", t: "#FDE8E7", words: /health|nfz|insur|doctor|hospital|medic/i },
-  safety: { label: "Safety", icon: "shield", c: "#6227A5", t: "#EFE7F8", words: /safe|police|rights|emergen|legal|fraud/i },
+  first: { label: "focus.first", icon: "flag", c: "#2A5BD7", t: "#E6EEFD", words: /pesel|residen|permit|registr|visa|passport|document|arriv|first/i },
+  housing: { label: "focus.housing", icon: "home", c: "#EE7F3A", t: "#FDEDE2", words: /rent|flat|apartment|housing|landlord|lease|address|meldun/i },
+  finance: { label: "focus.finance", icon: "wallet", c: "#52771F", t: "#EAF1DF", words: /bank|tax|pit|money|finance|zus|salary|account|income/i },
+  health: { label: "focus.health", icon: "heart", c: "#C73E38", t: "#FDE8E7", words: /health|nfz|insur|doctor|hospital|medic/i },
+  safety: { label: "focus.safety", icon: "shield", c: "#6227A5", t: "#EFE7F8", words: /safe|police|rights|emergen|legal|fraud/i },
 };
 
 function blocksOf(record) { return (record?.journey?.journey_blocks) || []; }
@@ -161,9 +194,9 @@ function relTime(value) {
   const diff = Date.now() - d.getTime();
   if (Number.isNaN(diff)) return "";
   const mins = Math.round(diff / 60000);
-  if (mins < 1) return "Now";
-  if (mins < 60) return `${mins} min`;
-  if (mins < 1440) return `${Math.round(mins / 60)} h`;
+  if (mins < 1) return t("alerts.now");
+  if (mins < 60) return t("alerts.min", { count: mins });
+  if (mins < 1440) return t("alerts.h", { count: Math.round(mins / 60) });
   return formatDay(d);
 }
 function daysUntil(iso) {
@@ -179,9 +212,9 @@ function stepStatus(record, index) {
   return first === index ? "progress" : "todo";
 }
 function pill(status) {
-  if (status === "done") return `<span class="pill done">${icon("check", 12, "currentColor", 3)}Complete</span>`;
-  if (status === "progress") return `<span class="pill progress"><svg width="8" height="8"><circle cx="4" cy="4" r="4" fill="#EE7F3A"/></svg>In progress</span>`;
-  return `<span class="pill todo"><i style="width:7px;height:7px;border-radius:4px;border:1.5px solid #5F6685"></i>Not started</span>`;
+  if (status === "done") return `<span class="pill done">${icon("check", 12, "currentColor", 3)}${t("pill.done")}</span>`;
+  if (status === "progress") return `<span class="pill progress"><svg width="8" height="8"><circle cx="4" cy="4" r="4" fill="#EE7F3A"/></svg>${t("pill.progress")}</span>`;
+  return `<span class="pill todo"><i style="width:7px;height:7px;border-radius:4px;border:1.5px solid #5F6685"></i>${t("pill.todo")}</span>`;
 }
 function unreadCount() { return state.alerts.filter((a) => !a.is_read).length; }
 
@@ -196,9 +229,9 @@ function renderNav() {
   const item = (key, label, ic) => `<button type="button" data-go="${key}" class="${active === key ? "on" : ""}" ${active === key ? 'aria-current="page"' : ""}>
     <span class="pillbox">${icon(ic, 22)}${key === "alerts" && badge ? `<span class="badge">${badge > 9 ? "9+" : badge}</span>` : ""}</span>${label}</button>`;
   $nav.className = "nav";
-  $nav.innerHTML = `${item("journeys", "Journeys", "flag")}${item("explore", "Explore", "compass")}
-    <button type="button" class="fab" data-go="home" aria-label="Ask the assistant">${icon("sparkle", 26, "#fff")}</button>
-    ${item("alerts", "Alerts", "bell")}${item("profile", "Profile", "user")}`;
+  $nav.innerHTML = `${item("journeys", t("nav.journeys"), "flag")}${item("explore", t("nav.explore"), "compass")}
+    <button type="button" class="fab" data-go="home" aria-label="${t("nav.ask")}">${icon("sparkle", 26, "#fff")}</button>
+    ${item("alerts", t("nav.alerts"), "bell")}${item("profile", t("nav.profile"), "user")}`;
 }
 
 function view(html, { locked = false } = {}) {
@@ -209,7 +242,7 @@ function view(html, { locked = false } = {}) {
 }
 
 function backRow(target, title = "") {
-  return `<div class="back-row"><button class="icon-btn" type="button" data-go="${target}" aria-label="Back">${icon("back")}</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
+  return `<div class="back-row"><button class="icon-btn" type="button" data-go="${target}" aria-label="${t("back")}">${icon("back")}</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
 }
 
 function go(page, extra = {}) {
@@ -218,45 +251,47 @@ function go(page, extra = {}) {
 }
 
 /* ---------- screens ---------- */
-const LOGIN_INFO = {
-  privacy: "Your number isn’t verified and is stored only as a protected hash. Your journeys stay private to this browser.",
-  accessibility: "Text size, high contrast and reduce motion are in Profile › Preferences.",
-  help: "Use the same phone number on this browser to come back to your journeys. Sessions sign out after 15 days without activity.",
-};
+const LOGIN_INFO = { privacy: "info.privacy", accessibility: "info.accessibility", help: "info.help" };
+const LANGS = window.LANGUAGES || [{ code: "en", short: "EN", name: "English" }, { code: "pl", short: "PL", name: "Polski" }, { code: "uk", short: "UA", name: "Українська" }];
+function langShort() { return (LANGS.find((l) => l.code === state.language) || LANGS[0]).short; }
+function langPicker() {
+  if (!state.langOpen) return "";
+  return `<div class="lang-menu" role="menu">${LANGS.map((l) => `<button type="button" role="menuitemradio" aria-checked="${l.code === state.language}" data-lang="${l.code}"><b>${l.short}</b>${esc(l.name)}${l.code === state.language ? icon("check", 16, "#2A5BD7", 2.6) : ""}</button>`).join("")}</div>`;
+}
 
 function renderLogin() {
   if (state.loginStep === "phone") return renderPhoneStep();
   const tiles = [["#EC625C", "home"], ["#52771F", "heart"], ["#6227A5", "cap"], ["#EE7F3A", "briefcase"], ["#6EA1F8", "tv"], ["#1B2A5C", "shieldcheck"]];
   view(`<div class="page">
-    <div class="login-top"><div class="login-brand"><span class="flag"><i></i><i></i></span>Moving to Poland</div>
-      <button class="lang-btn" type="button" data-act="lang" aria-label="Change language, current ${state.language.toUpperCase()}">${icon("globe", 18)}${state.language.toUpperCase()}</button></div>
+    <div class="login-top"><div class="login-brand"><span class="flag"><i></i><i></i></span>${t("brand")}</div>
+      <div class="lang-wrap"><button class="lang-btn" type="button" data-act="lang" aria-haspopup="menu" aria-expanded="${!!state.langOpen}" aria-label="${t("lang.change")}: ${langShort()}">${icon("globe", 18)}${langShort()}</button>${langPicker()}</div></div>
     <div class="tiles6">${tiles.map(([c, i]) => `<div style="background:${c}">${icon(i, 36, "#fff", 1.7)}</div>`).join("")}</div>
-    <div class="login-copy"><h1>Witaj</h1><p>Your official guide to settling in Poland,<br>one clear step at a time.</p></div>
+    <div class="login-copy"><h1>Witaj</h1><p>${t("login.sub")}</p></div>
     <div class="login-form">
-      <button class="btn btn-primary" type="button" data-act="login-phone" style="gap:12px"><span class="g-badge">${icon("phone", 18, "#2A5BD7", 2)}</span><span>Log in with phone</span></button>
-      <button class="btn btn-outline" type="button" data-act="login-phone">${icon("user", 20)}Continue on this device</button>
-      <button class="btn-text" type="button" data-act="login-phone" style="align-self:center">New here? Create an account</button>
+      <button class="btn btn-primary" type="button" data-act="login-phone" style="gap:12px"><span class="g-badge">${icon("phone", 18, "#2A5BD7", 2)}</span><span>${t("login.phone")}</span></button>
+      <button class="btn btn-outline" type="button" data-act="login-phone">${icon("user", 20)}${t("login.device")}</button>
+      <button class="btn-text" type="button" data-act="login-phone" style="align-self:center">${t("login.create")}</button>
     </div>
     <div class="login-foot">
-      <div class="gdpr">${icon("lock", 15, "#5F6685")}Your data is protected under GDPR</div>
-      <div class="links"><button type="button" data-info="privacy">Privacy</button><button type="button" data-info="accessibility">Accessibility</button><button type="button" data-info="help">Help</button></div>
+      <div class="gdpr">${icon("lock", 15, "#5F6685")}${t("login.gdpr")}</div>
+      <div class="links"><button type="button" data-info="privacy">${t("login.privacy")}</button><button type="button" data-info="accessibility">${t("login.accessibility")}</button><button type="button" data-info="help">${t("login.help")}</button></div>
     </div></div>`);
 }
 
 function renderPhoneStep() {
   view(`<div class="page">
-    <div class="back-row"><button class="icon-btn" type="button" data-act="login-back" aria-label="Back">${icon("back")}</button><div class="title"></div><div class="spacer"></div></div>
-    <div class="login-copy" style="padding-top:12px"><h1 style="font-size:32px">${state.recoveryAvailable ? "Welcome back" : "Log in with phone"}</h1>
-      <p>${state.recoveryAvailable ? "Enter the same number to reopen your private profile on this device." : "Enter your phone number. We use it only to keep your private profile on this device."}</p></div>
+    <div class="back-row"><button class="icon-btn" type="button" data-act="login-back" aria-label="${t("back")}">${icon("back")}</button><div class="title"></div><div class="spacer"></div></div>
+    <div class="login-copy" style="padding-top:12px"><h1 style="font-size:32px">${state.recoveryAvailable ? t("phone.titleBack") : t("phone.titleNew")}</h1>
+      <p>${state.recoveryAvailable ? t("phone.subBack") : t("phone.subNew")}</p></div>
     <form class="login-form" id="loginForm">
-      <label class="field"><span>Phone number with country code</span>
+      <label class="field"><span>${t("phone.label")}</span>
       <input class="input" id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+48 600 000 000" maxlength="24" required></label>
       <p class="error" id="loginError" role="alert">${esc(state.loginError)}</p>
-      <button class="btn btn-primary" type="submit">Continue</button>
+      <button class="btn btn-primary" type="submit">${t("continue")}</button>
     </form>
     <div class="login-foot">
-      <div class="gdpr">${icon("lock", 15, "#5F6685")}Your data is protected under GDPR</div>
-      <p class="note">${LOGIN_INFO.privacy} Sessions sign out after 15 days without activity.</p>
+      <div class="gdpr">${icon("lock", 15, "#5F6685")}${t("login.gdpr")}</div>
+      <p class="note">${t("info.privacy")} ${t("phone.sessions")}</p>
     </div></div>`);
   document.getElementById("phone").focus();
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
@@ -282,26 +317,26 @@ function renderPhoneStep() {
 }
 
 function renderHome() {
-  const topics = ["PESEL number", "Residence card", "Health insurance", "Renting a flat"];
+  const topics = ["pesel", "residence", "health", "rent"];
   view(`<div class="page">
     <div class="wl-head"><div class="hello">Dzień dobry</div>
-      <button class="icon-btn bell" type="button" data-go="alerts" aria-label="Alerts">${icon("bell")}${unreadCount() ? '<span class="dot"></span>' : ""}</button></div>
-    <h1 class="wl-title">How would you like to start?</h1>
+      <button class="icon-btn bell" type="button" data-go="alerts" aria-label="${t("nav.alerts")}">${icon("bell")}${unreadCount() ? '<span class="dot"></span>' : ""}</button></div>
+    <h1 class="wl-title">${t("home.title")}</h1>
     <div class="wl-cards">
-      <button class="card-blue" type="button" data-act="new-chat"><div class="top"><span class="ico">${icon("sparkle", 24, "#fff")}</span><span class="rec">Recommended</span></div>
-        <div><div class="t">Design my own journey</div><div class="d" style="margin-top:6px">Tell the assistant about your situation and get a personal plan with official sources.</div></div>
-        <span class="go">Start ${icon("arrow", 18)}</span></button>
+      <button class="card-blue" type="button" data-act="new-chat"><div class="top"><span class="ico">${icon("sparkle", 24, "#fff")}</span><span class="rec">${t("home.rec")}</span></div>
+        <div><div class="t">${t("home.designT")}</div><div class="d" style="margin-top:6px">${t("home.designD")}</div></div>
+        <span class="go">${t("home.start")} ${icon("arrow", 18)}</span></button>
       <button class="card-white" type="button" data-go="explore"><span class="ico">${icon("compass", 24, "#1B2A5C")}</span>
-        <span><div class="t">Browse general categories</div><div class="d">Explore topics on your own</div></span></button>
+        <span><div class="t">${t("home.browseT")}</div><div class="d">${t("home.browseD")}</div></span></button>
     </div>
-    <div class="topics"><div class="eyebrow">Popular topics</div><div class="chips">${topics.map((t) => `<button class="chip" type="button" data-topic="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
-    <div class="trust">${icon("shield", 20, "#3F5E16")}<span>Answers are based on official Polish government sources and always link back to them.</span></div>
+    <div class="topics"><div class="eyebrow">${t("home.popular")}</div><div class="chips">${topics.map((k) => `<button class="chip" type="button" data-topic="${esc(t(`topic.${k}.q`))}">${esc(t(`topic.${k}`))}</button>`).join("")}</div></div>
+    <div class="trust">${icon("shield", 20, "#3F5E16")}<span>${t("home.trust")}</span></div>
   </div>`);
 }
 
 function sourcesBlock(sources) {
   if (!sources?.length) return "";
-  return `<details class="src"><summary>${icon("shield", 14, "#52771F")}Based on official sources · <b>View</b></summary><ul>${sources.map((s) =>
+  return `<details class="src"><summary>${icon("shield", 14, "#52771F")}${t("chat.sources")} · <b>${t("chat.view")}</b></summary><ul>${sources.map((s) =>
     `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">[${esc(s.id)}] ${esc(s.title)}</a></li>`).join("")}</ul></details>`;
 }
 
@@ -315,19 +350,19 @@ function renderChat() {
       : `<div class="bubble bot">${esc(m.content)}${last ? sourcesBlock(state.sources) : ""}</div>`;
   });
   if (userTurns >= 2) {
-    bubbles.push(`<button class="bubble bot create" style="max-width:286px;align-self:flex-start;background:var(--blue);color:#fff;border:0;display:flex;justify-content:center;gap:8px;align-items:center;cursor:pointer;font-weight:600" type="button" data-act="create">${icon("sparkle", 18, "#fff")}Create my journey</button>`);
+    bubbles.push(`<button class="bubble bot create" style="max-width:286px;align-self:flex-start;background:var(--blue);color:#fff;border:0;display:flex;justify-content:center;gap:8px;align-items:center;cursor:pointer;font-weight:600" type="button" data-act="create">${icon("sparkle", 18, "#fff")}${t("chat.create")}</button>`);
   }
   view(`<div class="page fill">
-    <div class="chat-head"><button class="back" type="button" data-go="home" aria-label="Back">${icon("back")}</button>
+    <div class="chat-head"><button class="back" type="button" data-go="home" aria-label="${t("back")}">${icon("back")}</button>
       <span class="avatar">${icon("sparkle", 20, "#fff")}</span>
-      <div class="who"><div class="name">Gov Assistant</div><div class="status"><i></i>AI assistant · official sources</div></div>
-      ${state.history.length ? `<button class="back" type="button" data-act="new-chat" aria-label="New chat">${icon("plus")}</button>` : ""}</div>
+      <div class="who"><div class="name">${t("chat.name")}</div><div class="status"><i></i>${t("chat.status")}</div></div>
+      ${state.history.length ? `<button class="back" type="button" data-act="new-chat" aria-label="${t("chat.newChat")}">${icon("plus")}</button>` : ""}</div>
     <div class="chat-body ${empty ? "is-empty" : ""}" id="chatBody" aria-live="polite">${bubbles.join("")}</div>
     <div class="composer"><form id="chatForm" autocomplete="off">
-      <button class="icon-btn" type="button" data-act="mic" aria-label="Voice input (coming soon)" style="background:var(--bg)">${icon("mic", 20)}</button>
-      <input class="msg" id="chatInput" maxlength="2000" placeholder="Ask anything about moving to Poland…" aria-label="Your message" enterkeyhint="send">
-      <button class="send" id="sendBtn" type="submit" aria-label="Send">${icon("send", 20, "#fff")}</button></form>
-      <div class="fine">AI can make mistakes. Confirm key details with the relevant office.</div></div></div>`, { locked: true });
+      <button class="icon-btn" type="button" data-act="mic" aria-label="${t("chat.mic")}" style="background:var(--bg)">${icon("mic", 20)}</button>
+      <input class="msg" id="chatInput" maxlength="2000" placeholder="${t("chat.placeholder")}" aria-label="${t("chat.message")}" enterkeyhint="send">
+      <button class="send" id="sendBtn" type="submit" aria-label="${t("chat.send")}">${icon("send", 20, "#fff")}</button></form>
+      <div class="fine">${t("chat.fine")}</div></div></div>`, { locked: true });
   const body = document.getElementById("chatBody");
   body.scrollTop = body.scrollHeight;
   document.getElementById("chatForm").addEventListener("submit", (event) => {
@@ -373,7 +408,7 @@ async function sendChat(answer) {
   } catch (error) {
     if (error.status !== 401) {
       toast(error.message);
-      state.history.push({ role: "assistant", content: "I couldn’t complete that just now. Please try again in a moment." });
+      state.history.push({ role: "assistant", content: t("err.chat") });
     }
   }
   state.busy = false;
@@ -384,15 +419,15 @@ async function sendChat(answer) {
 }
 
 function renderCreating() {
-  const labels = ["Understanding your situation", "Choosing the key steps", "Setting realistic deadlines", "Checking official requirements"];
+  const labels = ["creating.s1", "creating.s2", "creating.s3", "creating.s4"].map((k) => t(k));
   const started = Date.now();
   const total = 6000;
   view(`<div class="page"><div class="creating">
     <div class="scene">${window.SCENE_HTML || ""}</div>
-    <h1>Creating your journey</h1><p>This only takes a moment.</p>
+    <h1>${t("creating.title")}</h1><p>${t("creating.sub")}</p>
     <div class="bar-row"><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="cBar" style="width:0%;background:#2A5BD7"></div></div><div class="pct" id="cPct">0%</div></div>
     <div class="c-steps" id="cSteps"></div></div>
-    <div class="creating-foot" id="cFoot"><button class="btn-text" type="button" data-go="chat">Cancel</button></div></div>`, { locked: true });
+    <div class="creating-foot" id="cFoot"><button class="btn-text" type="button" data-go="chat">${t("cancel")}</button></div></div>`, { locked: true });
   const timer = setInterval(() => {
     if (state.page !== "creating") { clearInterval(timer); return; }
     const p = Math.min(1, (Date.now() - started) / total);
@@ -409,7 +444,7 @@ function renderCreating() {
     if (p >= 1) {
       clearInterval(timer);
       bar.style.background = "#52771F";
-      document.getElementById("cFoot").innerHTML = '<button class="btn btn-primary" type="button" data-act="see-journey">See my journey</button>';
+      document.getElementById("cFoot").innerHTML = `<button class="btn btn-primary" type="button" data-act="see-journey">${t("creating.see")}</button>`;
     }
   }, 120);
 }
@@ -422,18 +457,18 @@ function renderReady() {
   view(`<div class="page">
     <div class="back-row"><div class="spacer"></div></div>
     <div class="ready-head"><div class="check-circle">${icon("check", 30, "#52771F", 3)}</div>
-      <h1>Your journey is ready</h1><p>${esc(record.journey?.message || "We built a personal plan from official sources.")}</p></div>
-    <div class="focus"><div class="row"><b>Focus categories</b><span>Tap to change</span></div>
+      <h1>${t("ready.title")}</h1><p>${esc(record.journey?.message || t("ready.fallback"))}</p></div>
+    <div class="focus"><div class="row"><b>${t("ready.focus")}</b><span>${t("ready.tap")}</span></div>
       <div class="chips" id="focusChips">${focusAll.map((key) => {
         const f = FOCUS[key];
         const on = state.focus.includes(key);
-        return `<button class="cat-chip ${on ? "" : "off"}" type="button" data-focus="${key}" aria-pressed="${on}" style="--c:${f.c};--t:${f.t}"><span class="i">${icon(f.icon, 16, f.c)}</span>${f.label}</button>`;
+        return `<button class="cat-chip ${on ? "" : "off"}" type="button" data-focus="${key}" aria-pressed="${on}" style="--c:${f.c};--t:${f.t}"><span class="i">${icon(f.icon, 16, f.c)}</span>${esc(t(f.label))}</button>`;
       }).join("")}</div></div>
     <form class="ready-form" id="readyForm">
-      <label class="field"><span>Name your journey</span><input class="input" id="jName" maxlength="120" required value="${esc(record.title)}"></label>
-      <label class="field"><span>Target date</span><div class="date-wrap"><input class="input" id="jDate" inputmode="numeric" maxlength="10" placeholder="DD.MM.YYYY" autocomplete="off">${icon("calendar", 20, "#5F6685")}</div><div class="hint" id="jDateHint">Optional. Format DD.MM.YYYY.</div></label>
+      <label class="field"><span>${t("ready.name")}</span><input class="input" id="jName" maxlength="120" required value="${esc(record.title)}"></label>
+      <label class="field"><span>${t("ready.date")}</span><div class="date-wrap"><input class="input" id="jDate" inputmode="numeric" maxlength="10" placeholder="${t("ready.datePh")}" autocomplete="off">${icon("calendar", 20, "#5F6685")}</div><div class="hint" id="jDateHint">${t("ready.dateHint")}</div></label>
     </form>
-    <div class="ready-foot"><button class="btn btn-primary" type="submit" form="readyForm">Go to my journey</button></div></div>`);
+    <div class="ready-foot"><button class="btn btn-primary" type="submit" form="readyForm">${t("ready.go")}</button></div></div>`);
   document.getElementById("readyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = document.getElementById("jDate").value.trim();
@@ -442,7 +477,7 @@ function renderReady() {
       const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
       const d = m && new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
       if (!m || d.getUTCDate() !== +m[1] || d.getUTCMonth() !== +m[2] - 1) {
-        document.getElementById("jDateHint").textContent = "Please use a real date like 31.12.2026.";
+        document.getElementById("jDateHint").textContent = t("ready.dateErr");
         return;
       }
       target = d.toISOString().slice(0, 10);
@@ -467,33 +502,33 @@ function journeyHeader(record) {
   const pct = percent(record);
   const target = record.journey?.target_date;
   return `<div class="jhead"><div class="top"><span class="ico">${icon("flag", 26, "#2A5BD7")}</span>
-    <div style="min-width:0"><h1>${esc(record.title)}</h1>${target ? `<div class="target">${icon("calendar", 14, "#5F6685")}Target ${esc(formatFull(target))}</div>` : ""}</div></div>
+    <div style="min-width:0"><h1>${esc(record.title)}</h1>${target ? `<div class="target">${icon("calendar", 14, "#5F6685")}${esc(t("journey.target", { date: formatFull(target) }))}</div>` : ""}</div></div>
     <div><div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div style="width:${pct}%"></div></div>
-    <div class="prog-row"><b>${done} of ${blocks.length} steps done</b><span style="color:var(--muted)">${pct}%</span></div></div></div>`;
+    <div class="prog-row"><b>${t("journey.stepsDone", { done, total: blocks.length })}</b><span style="color:var(--muted)">${pct}%</span></div></div></div>`;
 }
 
 async function renderJourney() {
   const id = state.current?.id;
   if (!id) return go("journeys");
-  view('<div class="loading">Opening your journey…</div>');
+  view(`<div class="loading">${t("journey.loading")}</div>`);
   try {
     const record = await api(`/api/journeys/${id}`);
     if (state.page !== "journey") return;
     state.current = record;
     const blocks = blocksOf(record);
     const warning = record.journey?.needs_official_help
-      ? `<div class="trust" style="margin:16px 20px 0;background:var(--orange-t);color:var(--orange-x)">${icon("info", 20, "#9A440D")}<span>This situation may need an official or professional. Please confirm with the responsible office.</span></div>` : "";
-    view(`<div class="page">${backRow("journeys", "My journeys")}${journeyHeader(record)}${warning}
+      ? `<div class="trust" style="margin:16px 20px 0;background:var(--orange-t);color:var(--orange-x)">${icon("info", 20, "#9A440D")}<span>${t("journey.warning")}</span></div>` : "";
+    view(`<div class="page">${backRow("journeys", t("journey.my"))}${journeyHeader(record)}${warning}
       <div class="steps">${blocks.map((block, i) => {
         const status = stepStatus(record, i);
         const needs = status === "todo" && i > 0 && !completedOf(record).has(i - 1) && stepStatus(record, i - 1) !== "done"
-          ? `Needs step ${i} first` : (block.deadline || "");
+          ? t("journey.needs", { step: i }) : (block.deadline || "");
         return `<button class="step ${status === "progress" ? "current" : ""} ${status === "done" ? "is-done" : ""}" type="button" data-step="${i}">
           <span class="ico">${icon(status === "done" ? "check" : "doc", 22, status === "done" ? "#52771F" : "#2A5BD7", status === "done" ? 3 : 1.8)}</span>
           <span class="m"><span class="n">${esc(block.title)}</span><span class="s">${pill(status)}${needs ? `<small>${esc(needs)}</small>` : ""}</span></span>${icon("chev", 18, "#5F6685")}</button>`;
       }).join("")}</div>
-      <div class="j-actions"><button class="btn btn-outline" type="button" data-act="remind">${icon("bell", 18)}Set a reminder</button>
-      <button class="btn btn-danger" type="button" data-act="delete-journey">${icon("trash", 18, "#B3322C")}Delete this journey</button></div></div>`);
+      <div class="j-actions"><button class="btn btn-outline" type="button" data-act="remind">${icon("bell", 18)}${t("journey.remind")}</button>
+      <button class="btn btn-danger" type="button" data-act="delete-journey">${icon("trash", 18, "#B3322C")}${t("journey.delete")}</button></div></div>`);
   } catch (error) {
     if (state.page === "journey") view(`<div class="page">${backRow("journeys")}<div class="empty"><p>${esc(error.message)}</p></div></div>`);
   }
@@ -509,19 +544,19 @@ function renderStep() {
   const links = (block.source_ids || []).map((id) => sources.get(id)).filter(Boolean);
   const docs = block.documents || [];
   const maps = block.where ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(block.where)}` : "";
-  view(`<div class="page">${backRow("journey", `Step ${state.stepIndex + 1} of ${total}`)}
+  view(`<div class="page">${backRow("journey", t("step.of", { step: state.stepIndex + 1, total }))}
     <div class="sd"><span class="ico">${icon("doc", 28, "#2A5BD7")}</span><h1>${esc(block.title)}</h1>
       <div class="meta">${pill(status)}${block.deadline ? `<span class="due">${icon("clock", 14, "#5F6685")}${esc(block.deadline)}</span>` : ""}</div>
       <p class="desc">${esc(block.action)}</p></div>
-    ${block.fee || block.where ? `<div class="facts">${block.fee ? `<div class="fact">${icon("wallet", 20, "#52771F")}<span>Cost</span><b>${esc(block.fee)}</b></div>` : ""}${block.where ? `<div class="fact">${icon("pin", 20, "#EE7F3A")}<span>Where</span><b>${esc(block.where)}</b></div>` : ""}</div>` : ""}
-    ${docs.length ? `<div class="checklist"><h3>What to bring <small>· tick as you go</small></h3>${docs.map((d, i) => `<label><input type="checkbox" id="doc${i}"><span>${esc(d)}</span></label>`).join("")}</div>` : ""}
+    ${block.fee || block.where ? `<div class="facts">${block.fee ? `<div class="fact">${icon("wallet", 20, "#52771F")}<span>${t("step.cost")}</span><b>${esc(block.fee)}</b></div>` : ""}${block.where ? `<div class="fact">${icon("pin", 20, "#EE7F3A")}<span>${t("step.where")}</span><b>${esc(block.where)}</b></div>` : ""}</div>` : ""}
+    ${docs.length ? `<div class="checklist"><h3>${t("step.bring")} <small>· ${t("step.tick")}</small></h3>${docs.map((d, i) => `<label><input type="checkbox" id="doc${i}"><span>${esc(d)}</span></label>`).join("")}</div>` : ""}
     ${block.where ? `<div class="place"><div class="t"><span class="ico">${icon("pin", 22, "#2A5BD7")}</span><div><b>${esc(block.where)}</b></div></div>
-      <div class="acts"><a class="tint" href="${maps}" target="_blank" rel="noopener noreferrer">${icon("map", 18, "#2A5BD7")}Directions</a></div></div>` : ""}
-    ${links.length ? `<div class="source-line">${icon("shield", 14, "#52771F")}Source: ${links.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>`).join(" · ")}</div>` : ""}
+      <div class="acts"><a class="tint" href="${maps}" target="_blank" rel="noopener noreferrer">${icon("map", 18, "#2A5BD7")}${t("step.directions")}</a></div></div>` : ""}
+    ${links.length ? `<div class="source-line">${icon("shield", 14, "#52771F")}${t("step.source")}: ${links.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>`).join(" · ")}</div>` : ""}
     <div style="height:24px"></div>
     <div class="bottom-bar">${status === "done"
-      ? '<button class="btn btn-outline" type="button" data-act="toggle-step">Mark as not done</button>'
-      : `<button class="btn btn-green" type="button" data-act="toggle-step">${icon("check", 20, "#fff", 3)}Mark as done</button>`}</div></div>`);
+      ? `<button class="btn btn-outline" type="button" data-act="toggle-step">${t("step.markUndone")}</button>`
+      : `<button class="btn btn-green" type="button" data-act="toggle-step">${icon("check", 20, "#fff", 3)}${t("step.markDone")}</button>`}</div></div>`);
 }
 
 async function toggleStep() {
@@ -536,7 +571,7 @@ async function toggleStep() {
     record.completed_steps = list;
     state.journeys = state.journeys.map((j) => (j.id === record.id ? { ...j, completed_steps: list } : j));
     if (list.length === blocksOf(record).length && list.length) return go("complete");
-    toast(done.has(state.stepIndex) ? "Step marked as done." : "Step reopened.");
+    toast(done.has(state.stepIndex) ? t("step.doneToast") : t("step.reopened"));
     go("journey");
   } catch (error) {
     toast(error.message);
@@ -554,13 +589,13 @@ function renderJourneys() {
   if (next) {
     const blocks = blocksOf(next);
     const step = blocks.find((_, i) => !completedOf(next).has(i));
-    const due = dated ? (dated.d < 0 ? "overdue" : dated.d === 0 ? "due today" : `due in ${dated.d} day${dated.d === 1 ? "" : "s"}`) : "";
-    upnext = `<button class="upnext" type="button" data-journey="${next.id}"><div class="e">${icon("clock", 14, "#C9D6FB")}Up next${due ? ` · ${due}` : ""}</div>
-      <div class="t">${esc(step?.title || next.title)}</div><div class="d">${esc(next.title)}</div><div class="o">Continue ${icon("arrow", 18, "#fff")}</div></button>`;
+    const due = dated ? (dated.d < 0 ? t("journeys.overdue") : dated.d === 0 ? t("journeys.dueToday") : t("journeys.dueIn", { n: dated.d })) : "";
+    upnext = `<button class="upnext" type="button" data-journey="${next.id}"><div class="e">${icon("clock", 14, "#C9D6FB")}${t("journeys.upNext")}${due ? ` · ${due}` : ""}</div>
+      <div class="t">${esc(step?.title || next.title)}</div><div class="d">${esc(next.title)}</div><div class="o">${t("journeys.continue")} ${icon("arrow", 18, "#fff")}</div></button>`;
   }
-  view(`<div class="page"><div class="screen-title"><h1>Journeys</h1><button class="icon-btn" type="button" data-go="home" aria-label="New journey">${icon("plus")}</button></div>
+  view(`<div class="page"><div class="screen-title"><h1>${t("journeys.title")}</h1><button class="icon-btn" type="button" data-go="home" aria-label="${t("journeys.new")}">${icon("plus")}</button></div>
     ${upnext}
-    <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="active" aria-selected="${state.tab === "active"}">Active · ${active.length}</button><button type="button" role="tab" data-tab="done" aria-selected="${state.tab === "done"}">Completed · ${finished.length}</button></div>
+    <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="active" aria-selected="${state.tab === "active"}">${t("journeys.active", { count: active.length })}</button><button type="button" role="tab" data-tab="done" aria-selected="${state.tab === "done"}">${t("journeys.completed", { count: finished.length })}</button></div>
     <div class="jlist">${list.length ? list.map((j) => {
       const pct = percent(j);
       const blocks = blocksOf(j);
@@ -568,8 +603,8 @@ function renderJourneys() {
       const target = j.journey?.target_date;
       const status = pct >= 100 ? "done" : done ? "progress" : "todo";
       return `<button class="jcard" type="button" data-journey="${j.id}"><span class="ringp" style="background:conic-gradient(${pct >= 100 ? "#52771F" : "#2A5BD7"} ${pct}%,#ECE7DE 0)"><div>${pct}%</div></span>
-        <span class="m"><span class="n">${esc(j.title)}</span><span class="s">${pill(status)}<small>${done} of ${blocks.length}${target ? ` · by ${esc(formatDay(target))}` : ""}</small></span></span>${icon("chev", 18, "#5F6685")}</button>`;
-    }).join("") : `<div class="empty" style="margin:10px 0 0"><p>${state.tab === "active" ? "No active journeys yet. Talk to the assistant and we’ll build one for you." : "Journeys you finish will show up here."}</p>${state.tab === "active" ? '<button class="btn btn-primary" type="button" data-go="home">Start a journey</button>' : ""}</div>`}</div></div>`);
+        <span class="m"><span class="n">${esc(j.title)}</span><span class="s">${pill(status)}<small>${t("journeys.xOfY", { done, total: blocks.length })}${target ? ` · ${esc(t("journeys.by", { date: formatDay(target) }))}` : ""}</small></span></span>${icon("chev", 18, "#5F6685")}</button>`;
+    }).join("") : `<div class="empty" style="margin:10px 0 0"><p>${state.tab === "active" ? t("journeys.emptyActive") : t("journeys.emptyDone")}</p>${state.tab === "active" ? `<button class="btn btn-primary" type="button" data-go="home">${t("journeys.start")}</button>` : ""}</div>`}</div></div>`);
 }
 
 function renderComplete() {
@@ -585,68 +620,69 @@ function renderComplete() {
   view(`<div class="page"><div class="confetti" aria-hidden="true">${confetti}</div>
     <div class="done-top"><div class="burst"><span class="r ring"></span><div class="o pop"><div class="i">${icon("flag", 44, "#fff", 2.2)}</div></div>
       <span class="b pop">${icon("check", 22, "#fff", 3)}</span></div>
-      <div class="cg">Gratulacje! · Congratulations!</div><h1>You completed ${esc(record.title)}</h1>
-      <p>Every step is done. Keep the source links handy in case you need to check anything again.</p>
+      <div class="cg">Gratulacje!${state.language === "pl" ? "" : ` · ${t("complete.congrats")}`}</div><h1>${esc(t("complete.title", { title: record.title }))}</h1>
+      <p>${t("complete.body")}</p>
       <div class="chips">${blocksOf(record).slice(0, 6).map((b) => `<span class="done-pill"><i>${icon("check", 12, "#fff", 3)}</i>${esc(b.title.length > 24 ? `${b.title.slice(0, 23)}…` : b.title)}</span>`).join("")}</div></div>
-    <div class="next-card"><div class="eyebrow">Suggested next</div>
-      <div class="r"><span class="ico">${icon(nextJourney ? "flag" : "sparkle", 22, "#52771F")}</span><div><div class="t">${esc(nextJourney ? nextJourney.title : "Plan your next step")}</div><div class="d">${nextJourney ? "Pick up where you left off." : "Tell the assistant what you want to sort out next."}</div></div></div>
-      <button type="button" ${nextJourney ? `data-journey="${nextJourney.id}"` : 'data-act="new-chat"'}>${nextJourney ? "Open this journey" : "Start a new journey"}${icon("arrow", 18, "#3F5E16")}</button></div>
-    <div class="done-foot"><button class="btn btn-primary" type="button" data-go="journeys">Back to my journeys</button></div></div>`);
+    <div class="next-card"><div class="eyebrow">${t("complete.suggested")}</div>
+      <div class="r"><span class="ico">${icon(nextJourney ? "flag" : "sparkle", 22, "#52771F")}</span><div><div class="t">${esc(nextJourney ? nextJourney.title : t("complete.planNext"))}</div><div class="d">${nextJourney ? t("complete.pickUp") : t("complete.tellNext")}</div></div></div>
+      <button type="button" ${nextJourney ? `data-journey="${nextJourney.id}"` : 'data-act="new-chat"'}>${nextJourney ? t("complete.open") : t("complete.startNew")}${icon("arrow", 18, "#3F5E16")}</button></div>
+    <div class="done-foot"><button class="btn btn-primary" type="button" data-go="journeys">${t("complete.back")}</button></div></div>`);
 }
 
 const EXPLORE = [
-  ["Start & legal", "#2A5BD7", "#E6EEFD", [["First steps", "flag", "I just arrived in Poland. What are my first steps?"], ["Documents", "doc", "I need help with residence and official documents in Poland."], ["Rights & safety", "scales", "I want to understand my rights and safety in Poland."]]],
-  ["Work & money", "#C25A14", "#FDEDE2", [["Work", "briefcase", "I need information about working in Poland."], ["Business", "shop", "I want to start a business in Poland."], ["Finance & taxes", "wallet", "I need help with banking and taxes in Poland."]]],
-  ["Home & family", "#52771F", "#EAF1DF", [["Housing", "home", "I need help renting a flat in Poland."], ["Family", "family", "I need help with marriage or family procedures in Poland."], ["Education", "cap", "I need information about schools and education in Poland."]]],
-  ["Learn & connect", "#6227A5", "#EFE7F8", [["Language & culture", "language", "I want to learn Polish and understand local culture."], ["Community", "heart", "I’m looking for official local events and community services."]]],
-  ["Health", "#C73E38", "#FDE8E7", [["Health", "heart", "I want to understand health insurance and doctors in Poland."], ["Insurance", "shield", "I need help with NFZ and social insurance in Poland."]]],
+  ["start", "#2A5BD7", "#E6EEFD", [["first", "flag"], ["documents", "doc"], ["rights", "scales"]]],
+  ["work", "#C25A14", "#FDEDE2", [["work", "briefcase"], ["business", "shop"], ["finance", "wallet"]]],
+  ["home", "#52771F", "#EAF1DF", [["housing", "home"], ["family", "family"], ["education", "cap"]]],
+  ["learn", "#6227A5", "#EFE7F8", [["language", "language"], ["community", "heart"]]],
+  ["health", "#C73E38", "#FDE8E7", [["health", "heart"], ["insurance", "shield"]]],
 ];
 
 function renderExplore() {
-  view(`<div class="page"><div class="screen-title"><h1>Explore</h1></div>
-    <div class="search">${icon("search", 20, "#5F6685")}<input id="exSearch" type="search" placeholder="Search topics" aria-label="Search topics"></div>
+  view(`<div class="page"><div class="screen-title"><h1>${t("explore.title")}</h1></div>
+    <div class="search">${icon("search", 20, "#5F6685")}<input id="exSearch" type="search" placeholder="${t("explore.search")}" aria-label="${t("explore.search")}"></div>
     <div id="exList">${exploreList("")}</div>
-    <button class="ask-row" type="button" data-act="new-chat"><span class="a">${icon("sparkle", 18, "#fff")}</span><span class="t">Not sure where to look? Ask the assistant</span>${icon("chev", 18, "#5F6685")}</button></div>`);
+    <button class="ask-row" type="button" data-act="new-chat"><span class="a">${icon("sparkle", 18, "#fff")}</span><span class="t">${t("explore.ask")}</span>${icon("chev", 18, "#5F6685")}</button></div>`);
   document.getElementById("exSearch").addEventListener("input", (e) => {
     document.getElementById("exList").innerHTML = exploreList(e.target.value);
   });
 }
 function exploreList(query) {
   const q = query.trim().toLowerCase();
-  const out = EXPLORE.map(([name, c, t, tiles]) => {
-    const shown = tiles.filter(([label]) => !q || label.toLowerCase().includes(q) || name.toLowerCase().includes(q));
+  const out = EXPLORE.map(([sec, c, tint, tiles]) => {
+    const name = t(`sec.${sec}`);
+    const shown = tiles.filter(([key]) => !q || t(`tile.${key}`).toLowerCase().includes(q) || name.toLowerCase().includes(q));
     if (!shown.length) return "";
-    return `<section class="cat" style="--c:${c};--t:${t}"><h2><i></i>${esc(name)}</h2><div class="grid">${shown.map(([label, ic, topic]) =>
-      `<button class="cat-tile" type="button" data-topic="${esc(topic)}"><span class="i">${icon(ic, 22, c)}</span><span class="l">${esc(label)}</span></button>`).join("")}</div></section>`;
+    return `<section class="cat" style="--c:${c};--t:${tint}"><h2><i></i>${esc(name)}</h2><div class="grid">${shown.map(([key, ic]) =>
+      `<button class="cat-tile" type="button" data-topic="${esc(t(`tile.${key}.q`))}"><span class="i">${icon(ic, 22, c)}</span><span class="l">${esc(t(`tile.${key}`))}</span></button>`).join("")}</div></section>`;
   }).join("");
-  return out || '<div class="empty"><p>No topics match. Try asking the assistant instead.</p></div>';
+  return out || `<div class="empty"><p>${t("explore.noMatch")}</p></div>`;
 }
 
 function renderAlerts() {
   const now = new Date();
   const startToday = new Date(now).setHours(0, 0, 0, 0);
-  const groups = { Today: [], "This week": [], Earlier: [] };
+  const groups = { today: [], week: [], earlier: [] };
   for (const alert of state.alerts) {
     const when = new Date(alert.due_at || alert.created_at).getTime();
-    (when >= startToday ? groups.Today : when >= startToday - 6 * 86400000 ? groups["This week"] : groups.Earlier).push(alert);
+    (when >= startToday ? groups.today : when >= startToday - 6 * 86400000 ? groups.week : groups.earlier).push(alert);
   }
   const row = (a) => `<div class="alert ${a.is_read ? "" : "unread"}" style="align-items:flex-start">
     <span class="ico" style="background:${a.journey_id ? "#E6EEFD" : "#FDEDE2"}">${icon(a.journey_id ? "flag" : "clock", 20, a.journey_id ? "#2A5BD7" : "#C25A14")}</span>
     <button class="m" type="button" data-read="${a.id}" style="text-align:left;border:0;background:none;padding:0"><div class="h"><b>${esc(a.title)}</b><span>${esc(relTime(a.due_at || a.created_at))}</span></div>${a.body ? `<div class="b">${esc(a.body)}</div>` : ""}</button>
-    <span class="u ${a.is_read ? "off" : ""}"></span><button class="x" type="button" data-del-alert="${a.id}" aria-label="Delete reminder">×</button></div>`;
+    <span class="u ${a.is_read ? "off" : ""}"></span><button class="x" type="button" data-del-alert="${a.id}" aria-label="${t("alerts.delete")}">×</button></div>`;
   const sections = Object.entries(groups).filter(([, items]) => items.length).map(([name, items]) =>
-    `<div class="eyebrow">${name}</div>${items.map(row).join("")}`).join("");
-  view(`<div class="page"><div class="screen-title"><h1>Alerts</h1><button class="icon-btn" type="button" data-act="toggle-reminder" aria-label="New reminder" aria-expanded="${state.showReminder}">${icon("plus")}</button></div>
+    `<div class="eyebrow">${t(`alerts.${name}`)}</div>${items.map(row).join("")}`).join("");
+  view(`<div class="page"><div class="screen-title"><h1>${t("alerts.title")}</h1><button class="icon-btn" type="button" data-act="toggle-reminder" aria-label="${t("alerts.new")}" aria-expanded="${state.showReminder}">${icon("plus")}</button></div>
     ${state.showReminder ? `<form class="reminder-form" id="alertForm">
-      <label class="field"><span>What would you like to remember?</span><input class="input" id="aTitle" maxlength="160" required placeholder="Check the office opening hours"></label>
-      <label class="field"><span>Note (optional)</span><textarea class="input" id="aBody" maxlength="1000"></textarea></label>
-      <label class="field"><span>Date and time (optional)</span><input class="input" id="aDate" type="datetime-local"></label>
-      <button class="btn btn-primary" type="submit">Save reminder</button></form>` : ""}
-    <div class="alert-groups">${sections || '<div class="empty" style="margin:10px 0 0"><p>No alerts yet. Add a reminder with the + button.</p></div>'}</div>
-    ${state.alerts.some((a) => !a.is_read) ? '<div style="padding:14px 20px 0"><button class="btn btn-outline" type="button" data-act="read-all">Mark all as read</button></div>' : ""}
-    <div class="sw-card"><div class="sw-row"><span>Deadline reminders</span><button class="switch" type="button" role="switch" aria-checked="${prefs.deadlines}" aria-label="Deadline reminders" data-pref="deadlines"><i></i></button></div>
-      <div class="sw-row"><span>Email summaries<small>Not available yet</small></span><button class="switch" type="button" role="switch" aria-checked="false" aria-label="Email summaries" disabled><i></i></button></div></div>
-    <p class="acc-note" style="padding:10px 24px 24px">Reminders are shown inside the app only. No email or push messages are sent.</p></div>`);
+      <label class="field"><span>${t("alerts.remember")}</span><input class="input" id="aTitle" maxlength="160" required placeholder="${t("alerts.rememberPh")}"></label>
+      <label class="field"><span>${t("alerts.note")}</span><textarea class="input" id="aBody" maxlength="1000"></textarea></label>
+      <label class="field"><span>${t("alerts.datetime")}</span><input class="input" id="aDate" type="datetime-local"></label>
+      <button class="btn btn-primary" type="submit">${t("alerts.save")}</button></form>` : ""}
+    <div class="alert-groups">${sections || `<div class="empty" style="margin:10px 0 0"><p>${t("alerts.empty")}</p></div>`}</div>
+    ${state.alerts.some((a) => !a.is_read) ? `<div style="padding:14px 20px 0"><button class="btn btn-outline" type="button" data-act="read-all">${t("alerts.readAll")}</button></div>` : ""}
+    <div class="sw-card"><div class="sw-row"><span>${t("alerts.deadlines")}</span><button class="switch" type="button" role="switch" aria-checked="${prefs.deadlines}" aria-label="${t("alerts.deadlines")}" data-pref="deadlines"><i></i></button></div>
+      <div class="sw-row"><span>${t("alerts.email")}<small>${t("alerts.notYet")}</small></span><button class="switch" type="button" role="switch" aria-checked="false" aria-label="${t("alerts.email")}" disabled><i></i></button></div></div>
+    <p class="acc-note" style="padding:10px 24px 24px">${t("alerts.inApp")}</p></div>`);
   const form = document.getElementById("alertForm");
   if (form) {
     form.addEventListener("submit", async (event) => {
@@ -662,7 +698,7 @@ function renderAlerts() {
         state.showReminder = false;
         state.reminderJourney = "";
         state.alerts = (await api("/api/alerts")).alerts;
-        toast("Reminder saved.");
+        toast(t("alerts.saved"));
         renderAlerts();
         renderNav();
       } catch (error) { toast(error.message); }
@@ -676,27 +712,27 @@ function renderProfile() {
     ${state.openAcc === key ? `<div class="acc-body">${body}</div>` : ""}</div></div>`;
   const sw = (key, label, small = "") => `<div class="row"><div class="l">${label}${small ? `<small>${small}</small>` : ""}</div><button class="switch" type="button" role="switch" aria-checked="${prefs[key]}" aria-label="${label}" data-pref="${key}"><i></i></button></div>`;
   const size = (key, label) => `<button type="button" data-size="${key}" aria-pressed="${prefs.textSize === key}" style="font-size:${key === "small" ? 13 : key === "large" ? 19 : 16}px">${label}</button>`;
-  view(`<div class="page"><div class="screen-title"><h1>Profile</h1></div>
-    <div class="pcard"><span class="av">G</span><div><div class="n">Guest profile</div><div class="e">Private to this device</div><span class="pill done">${icon("lock", 12, "currentColor", 2.4)}Device-bound guest</span></div></div>
-    ${acc("prefs", "eye", "Preferences", "Language, text size, display",
-      `<div class="row"><span class="ico">${icon("globe", 18, "#1B2A5C")}</span><div class="l">Assistant language</div><select id="langSel" aria-label="Assistant language"><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></div>
-      ${sw("deadlines", "Deadline reminders")}
-      <div style="padding:12px 0 0"><div class="eyebrow" style="margin-bottom:8px">Text size</div><div class="seg">${size("small", "Aa small")}${size("default", "Aa default")}${size("large", "Aa large")}</div></div>
-      ${sw("contrast", "High contrast")}${sw("motion", "Reduce motion")}`)}
-    ${acc("about", "user", "About me", "How your guest profile works",
-      `<p class="acc-note">Your phone number isn’t verified and is never shown to the assistant. Only a protected hash links this browser to your private profile. If you clear browser data or switch device, the profile can’t be recovered with the number alone.</p>`)}
-    ${acc("docs", "doc", "My journeys", `${state.journeys.length} saved`,
-      `<button class="row" type="button" data-go="journeys" style="width:100%;background:none;border:0;text-align:left"><span class="ico">${icon("flag", 18, "#1B2A5C")}</span><div class="l">Open my journeys</div>${icon("chev", 16, "#5F6685")}</button>
-      <p class="acc-note">Don’t share documents or ID numbers in chat. The assistant doesn’t need them.</p>`)}
-    ${acc("privacy", "shield", "Privacy", "Sessions and data",
-      `<p class="acc-note">Sessions sign out after 15 days without activity. Your chat messages and relevant official excerpts are sent to Anthropic to prepare answers. Answers are general information, not legal advice.</p>`)}
-    ${acc("help", "help", "Help", "Using the assistant",
-      `<p class="acc-note">Ask in plain language, in English, Polish or Ukrainian. Answers link to official sources, so check the source and confirm key details with the relevant office.</p>`)}
-    <div class="logout"><button class="btn" type="button" data-act="logout">${icon("logout", 20, "#B3322C")}Log out</button><span>Moving to Poland</span></div></div>`);
+  view(`<div class="page"><div class="screen-title"><h1>${t("profile.title")}</h1></div>
+    <div class="pcard"><span class="av">G</span><div><div class="n">${t("profile.guest")}</div><div class="e">${t("profile.private")}</div><span class="pill done">${icon("lock", 12, "currentColor", 2.4)}${t("profile.device")}</span></div></div>
+    ${acc("prefs", "eye", t("profile.prefs"), t("profile.prefsSub"),
+      `<div class="row"><span class="ico">${icon("globe", 18, "#1B2A5C")}</span><div class="l">${t("profile.appLang")}</div><select id="langSel" aria-label="${t("profile.appLang")}">${LANGS.map((l) => `<option value="${l.code}">${esc(l.name)}</option>`).join("")}</select></div>
+      ${sw("deadlines", t("alerts.deadlines"))}
+      <div style="padding:12px 0 0"><div class="eyebrow" style="margin-bottom:8px">${t("profile.textSize")}</div><div class="seg">${size("small", t("profile.small"))}${size("default", t("profile.default"))}${size("large", t("profile.large"))}</div></div>
+      ${sw("contrast", t("profile.contrast"))}${sw("motion", t("profile.motion"), t("profile.motionSub"))}`)}
+    ${acc("about", "user", t("profile.about"), t("profile.aboutSub"),
+      `<p class="acc-note">${t("profile.aboutBody")}</p>`)}
+    ${acc("docs", "doc", t("profile.journeys"), t("profile.saved", { count: state.journeys.length }),
+      `<button class="row" type="button" data-go="journeys" style="width:100%;background:none;border:0;text-align:left"><span class="ico">${icon("flag", 18, "#1B2A5C")}</span><div class="l">${t("profile.open")}</div>${icon("chev", 16, "#5F6685")}</button>
+      <p class="acc-note">${t("profile.noDocs")}</p>`)}
+    ${acc("privacy", "shield", t("profile.privacy"), t("profile.privacySub"),
+      `<p class="acc-note">${t("profile.privacyBody")}</p>`)}
+    ${acc("help", "help", t("profile.help"), t("profile.helpSub"),
+      `<p class="acc-note">${t("profile.helpBody")}</p>`)}
+    <div class="logout"><button class="btn" type="button" data-act="logout">${icon("logout", 20, "#B3322C")}${t("profile.logout")}</button><span>${t("brand")}</span></div></div>`);
   const select = document.getElementById("langSel");
   if (select) {
     select.value = state.language;
-    select.addEventListener("change", (event) => { state.language = event.target.value; toast("Assistant language updated."); });
+    select.addEventListener("change", (event) => { setLanguage(event.target.value); toast(t("lang.updated")); });
   }
 }
 
@@ -733,10 +769,12 @@ async function refreshJourneys() {
 }
 
 document.addEventListener("click", async (event) => {
-  const el = event.target.closest("[data-go],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert],[data-info]");
+  const el = event.target.closest("[data-go],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert],[data-info],[data-lang]");
+  if (state.langOpen && !(el && (el.dataset.lang || el.dataset.act === "lang"))) { state.langOpen = false; if (state.page === "login") renderLogin(); }
   if (!el) return;
   const d = el.dataset;
-  if (d.info) return toast(LOGIN_INFO[d.info]);
+  if (d.lang) { state.langOpen = false; return setLanguage(d.lang); }
+  if (d.info) return toast(t(LOGIN_INFO[d.info]));
   if (d.topic) {
     state.history = [];
     state.sources = [];
@@ -787,12 +825,12 @@ document.addEventListener("click", async (event) => {
     return go(d.go);
   }
   switch (d.act) {
-    case "lang": state.language = { en: "pl", pl: "uk", uk: "en" }[state.language]; return renderLogin();
+    case "lang": state.langOpen = !state.langOpen; return renderLogin();
     case "new-chat": return startNewChat();
     case "login-phone": state.loginStep = "phone"; return renderLogin();
     case "login-back": state.loginStep = "start"; state.loginError = ""; return renderLogin();
-    case "mic": return toast("Voice input is coming soon.");
-    case "create": return sendChat("Please create my journey now based on what I’ve told you.");
+    case "mic": return toast(t("chat.micSoon"));
+    case "create": return sendChat(t("chat.createPrompt"));
     case "see-journey": return go("ready");
     case "toggle-step": return toggleStep();
     case "toggle-reminder": state.showReminder = !state.showReminder; return renderAlerts();
@@ -805,12 +843,12 @@ document.addEventListener("click", async (event) => {
       return;
     }
     case "delete-journey":
-      if (!window.confirm("Delete this journey from your private profile?")) return;
+      if (!window.confirm(t("journey.confirmDelete"))) return;
       try {
         await api(`/api/journeys/${state.current.id}`, { method: "DELETE" });
         state.journeys = state.journeys.filter((j) => j.id !== state.current.id);
         state.current = null;
-        toast("Journey deleted.");
+        toast(t("journey.deleted"));
         go("journeys");
       } catch (error) { toast(error.message); }
       return;
@@ -818,7 +856,7 @@ document.addEventListener("click", async (event) => {
       try {
         await api("/api/session/logout", { method: "POST" });
         Object.assign(state, { authenticated: false, recoveryAvailable: true, loginStep: "start", history: [], journeys: [], alerts: [], current: null, loginError: "" });
-        toast("You’re signed out.");
+        toast(t("profile.signedOut"));
         go("login");
       } catch (error) { toast(error.message); }
       return;
@@ -835,7 +873,7 @@ async function initialize() {
       await loadAll();
       state.page = "home";
     } else if (session.recovery_available) {
-      state.loginError = "Your session expired. Enter the same phone number on this browser to restore your progress.";
+      state.loginError = t("err.expired");
     }
   } catch (error) {
     state.authenticated = false;
