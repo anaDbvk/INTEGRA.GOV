@@ -2,8 +2,9 @@
 
 This project collects public service guidance from Polish government sites and
 public event/district pages from Kraków and Warsaw. It writes one JSON object
-per line to `pl_gov_pages.jsonl`; the GitHub Actions workflow uploads that file
-as an artifact and does not load it into a database or commit it to the repo.
+per line to `pl_gov_pages.jsonl`. The weekly GitHub Actions workflow retains
+the output as an artifact and attempts to load it into Supabase; scrape
+artifacts are not committed to the repository.
 
 ## Included sources
 
@@ -37,9 +38,18 @@ the artifact before relying on the date filter.
 
 Install `requirements.txt` and run `pl_gov_scraper.py`, or use **Actions →
 Scrape Polish government and city pages → Run workflow**. The workflow defaults
-to 100 pages per configured source and uploads a `pl_gov_pages` artifact with
-90-day retention. It runs weekly on Mondays; remove the `schedule` trigger in
-`.github/workflows/scrape.yml` to disable scheduled runs.
+to 100 pages per configured source, uploads a `pl_gov_pages` artifact with
+90-day retention even if the scrape job fails partway, and runs weekly on
+Mondays. After a successful scrape it attempts to load the JSONL into Supabase.
+The database load is allowed to fail without preventing the artifact from
+being retained. To disable scheduled runs, remove the `schedule` trigger in
+`.github/workflows/scrape.yml`.
+
+Before enabling the database load, apply `supabase/schema.sql` to the Supabase
+project. Add a repository Actions secret named `DATABASE_URL` containing the
+Supabase **Session pooler** connection string (the GitHub runner may not be
+able to reach the direct IPv6 database endpoint). `load_to_supabase.py`
+upserts scraped pages and does not overwrite manually-originated documents.
 
 The crawler does not run JavaScript. Some calendars or government pages may
 therefore be incomplete, and the page limit can exclude districts or events.
@@ -78,6 +88,9 @@ Run it locally from the repository root:
 python -m pip install -r requirements.txt
 $env:ANTHROPIC_API_KEY = "your-Anthropic-API-key"
 $env:ANTHROPIC_MODEL = "your-enabled-Claude-model-id"
+$env:ANTHROPIC_FAST_MODEL = "your-enabled-fast-Claude-model-id"
+$env:ADMIN_TOKEN = "a-long-random-secret"
+$env:RATE_LIMIT_PER_MINUTE = "10"
 $env:GITHUB_TOKEN = "your-read-only-fine-grained-GitHub-token"
 $env:GITHUB_REPOSITORY = "anaDbvk/SmartIN"
 python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
@@ -85,13 +98,21 @@ python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000`. The app loads scrape artifacts automatically.
 Never put the Anthropic key or GitHub token in the UI or browser; they are read
-only by the backend. Use a currently enabled model ID from your Anthropic
-account. This draft has no built-in sign-in: when deployed, put it behind your
-platform's authentication,
-HTTPS, and request/cost limits. Do not expose the backend directly to the
-public internet without those controls.
+only by the backend. `ANTHROPIC_FAST_MODEL` optionally selects a less expensive
+model for Polish query rewriting; it defaults to `ANTHROPIC_MODEL`. Use model
+IDs enabled for your Anthropic account.
+
+Set `ADMIN_TOKEN` to a long random secret to protect the optional
+`POST /api/knowledge` endpoint; uploads without the `X-Admin-Token` header
+matching that value receive 404. Set `RATE_LIMIT_PER_MINUTE` to control the
+per-IP interview limit (default `10`). This in-memory limiter is draft-grade
+and resets when the service restarts. Also set a monthly spend limit in the
+Anthropic Console. This draft has no built-in sign-in: when deployed, put it
+behind your platform's authentication, HTTPS, and request/cost limits. Do not
+expose the backend directly to the public internet without those controls.
 
 For Render, add `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
+`ANTHROPIC_FAST_MODEL`, `ADMIN_TOKEN`, `RATE_LIMIT_PER_MINUTE`,
 `GITHUB_TOKEN`, and `GITHUB_REPOSITORY` as service environment variables. Use a
 fine-grained GitHub token restricted to this repository with Actions read
 permission. This lets a private Render service find and download recent
