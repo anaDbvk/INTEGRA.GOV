@@ -84,12 +84,44 @@ class AssistantTests(unittest.TestCase):
         self.assertNotIn("test-api-key", response.text)
         script = self.client.get("/static/app.js")
         self.assertEqual(script.status_code, 200)
-        self.assertIn("Enter to send", script.text)
-        self.assertIn('event.key === "Enter"', script.text)
+        self.assertIn('enterkeyhint="send"', script.text)
+        self.assertIn('id="chatForm"', script.text)
         self.assertIn("sent to Anthropic", script.text)
         stylesheet = self.client.get("/static/app.css")
         self.assertEqual(stylesheet.status_code, 200)
         self.assertNotIn("fonts.googleapis.com", stylesheet.text)
+        self.assertIn("/static/fonts/lexend-latin.woff2", stylesheet.text)
+        for path in ("/static/scene.js", "/static/scenes.css", "/static/fonts/publicsans-latin.woff2"):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_journey_details_can_be_renamed_with_target_date_and_focus(self):
+        journey_id = "11111111-1111-1111-1111-111111111111"
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=True)) as database_call:
+            response = self.client.patch(
+                f"/api/journeys/{journey_id}",
+                json={"title": "  My PESEL plan ", "target_date": "2026-12-31", "focus": ["first", "health"]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"title": "My PESEL plan", "target_date": "2026-12-31", "focus": ["first", "health"]},
+        )
+        self.assertEqual(database_call.await_args.args[1], "test-profile-id")
+
+    def test_journey_details_update_returns_404_for_unknown_journey(self):
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=False)):
+            response = self.client.patch(
+                "/api/journeys/11111111-1111-1111-1111-111111111111",
+                json={"title": "Plan"},
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_journey_details_update_rejects_invalid_date(self):
+        response = self.client.patch(
+            "/api/journeys/11111111-1111-1111-1111-111111111111",
+            json={"title": "Plan", "target_date": "31.12.2026"},
+        )
+        self.assertEqual(response.status_code, 422)
 
     def test_api_is_available_without_a_shared_access_token(self):
         self.assertEqual(

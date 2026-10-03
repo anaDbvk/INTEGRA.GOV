@@ -3,34 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#faf9f5">
+  <meta name="theme-color" content="#F6F3EE">
   <meta name="color-scheme" content="light">
-  <title>Moving to Poland — SmartIN</title>
+  <title>Moving to Poland</title>
+  <link rel="preload" href="/static/fonts/lexend-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/publicsans-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/scenes.css">
 </head>
 <body>
-  <div class="app-frame">
-    <header class="topbar">
-      <a class="brand" href="#" data-page="home" aria-label="Moving to Poland home">
-        <span class="brand-mark" aria-hidden="true">m</span>
-        <span><strong>Moving to Poland</strong><small>Your next steps, made clearer</small></span>
-      </a>
-      <div class="top-actions">
-        <span id="sourceStatus" class="source-status"><i></i><span>Connecting…</span></span>
-        <button class="icon-button hidden" type="button" data-page="profile" aria-label="Profile settings" title="Profile settings">◉</button>
-        <button id="logoutButton" class="icon-button hidden" type="button" aria-label="Log out" title="Log out">↗</button>
-      </div>
-    </header>
+  <div class="phone">
     <main id="screen" class="screen" tabindex="-1"></main>
-    <nav id="bottomNav" class="bottom-nav hidden" aria-label="Main navigation">
-      <button type="button" data-page="home"><span aria-hidden="true">⌂</span><small>Home</small></button>
-      <button type="button" data-page="explore"><span aria-hidden="true">◫</span><small>Explore</small></button>
-      <button type="button" data-page="journeys"><span aria-hidden="true">✓</span><small>My journeys</small></button>
-      <button type="button" data-page="alerts"><span aria-hidden="true">♧</span><small>Alerts</small></button>
-      <button type="button" data-page="learn"><span aria-hidden="true">Aa</span><small>Polish</small></button>
-    </nav>
+    <nav id="nav" class="hidden" aria-label="Main navigation"></nav>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/scene.js"></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>

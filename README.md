@@ -148,11 +148,14 @@ verifying claims.
 
 ## Moving to Poland web app
 
-`webapp/` contains the smartphone-first FastAPI app based on
-`Moving to Poland – App Design.html`. It provides a guided interview in
-English, Polish, or Ukrainian, cited official-source journeys, private saved
-conversations and journeys, journey progress, in-app reminders, topic guides,
-and Polish phrases. The static interface is served by the same app; no
+`webapp/` contains the smartphone-first FastAPI app that follows
+`Moving to Poland – App Design (1).html` (Lexend/Public Sans fonts are
+self-hosted in `webapp/static/fonts`, the animations are in `scenes.css` and
+`scene.js`). It provides a guided interview in English, Polish or Ukrainian,
+cited official-source journeys, private saved conversations and journeys
+(name, target date and focus categories via `PATCH /api/journeys/{id}`),
+step-by-step progress, in-app reminders, category browsing and display
+preferences. The static interface is served by the same app; no
 separate frontend hosting is needed.
 
 ### Supabase setup

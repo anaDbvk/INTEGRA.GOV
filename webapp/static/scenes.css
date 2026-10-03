@@ -1,0 +1,33 @@
+/* Animations taken from the design */
+@keyframes drift{0%{transform:translateX(-10px)}100%{transform:translateX(10px)}}
+.drift{animation:drift 3s ease-in-out infinite alternate}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.4)}}
+.pulse{animation:pulse 1s ease-in-out infinite}
+.sky{animation:sky var(--day) linear infinite}
+@keyframes sky{0%{background-color:#F9C9A6}10%{background-color:#CFE0FD}40%{background-color:#CFE0FD}50%{background-color:#F4A27A}58%{background-color:#3A4380}66%{background-color:#1B2A5C}88%{background-color:#1B2A5C}95%{background-color:#5A4E8A}100%{background-color:#F9C9A6}}
+.arm{animation:arm var(--day) linear infinite}
+@keyframes arm{from{transform:rotate(-90deg)}to{transform:rotate(270deg)}}
+.sun{animation:sun var(--day) linear infinite}
+@keyframes sun{0%{background-color:#EC625C}12%{background-color:#EE7F3A}38%{background-color:#EE7F3A}50%{background-color:#EC625C}100%{background-color:#EC625C}}
+.gl{animation:gl var(--day) linear infinite}
+@keyframes gl{0%{opacity:.85}10%{opacity:0}90%{opacity:0}100%{opacity:.85}}
+.gr{animation:gr var(--day) linear infinite}
+@keyframes gr{0%{opacity:0}40%{opacity:0}50%{opacity:.85}60%{opacity:0}100%{opacity:0}}
+.stars{animation:stars var(--day) linear infinite}
+@keyframes stars{0%{opacity:0}55%{opacity:0}66%{opacity:1}88%{opacity:1}97%{opacity:0}100%{opacity:0}}
+.dim{animation:dim var(--day) linear infinite}
+@keyframes dim{0%{filter:brightness(.8) saturate(.9)}10%{filter:brightness(1) saturate(1)}42%{filter:brightness(1) saturate(1)}50%{filter:brightness(.9) saturate(1)}60%{filter:brightness(.55) saturate(.7)}66%{filter:brightness(.42) saturate(.6)}88%{filter:brightness(.42) saturate(.6)}100%{filter:brightness(.8) saturate(.9)}}
+.lights{animation:lights var(--day) linear infinite}
+@keyframes lights{0%{opacity:.4}8%{opacity:0}50%{opacity:0}57%{opacity:1}92%{opacity:1}100%{opacity:.4}}
+.cloud{animation:cloud 16s linear infinite}
+@keyframes cloud{from{transform:translateX(-110px)}to{transform:translateX(400px)}}
+@media (prefers-reduced-motion: reduce){.drift,.pulse,.sky,.arm,.sun,.gl,.gr,.stars,.dim,.lights,.cloud{animation:none}}
+@keyframes fall{0%{transform:translateY(0) rotate(0deg)}100%{transform:translateY(880px) rotate(540deg)}}
+.cf{animation:fall 5s linear infinite}
+@keyframes pop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
+.pop{animation:pop .7s cubic-bezier(.2,.8,.3,1.2) both}
+@keyframes tw{0%,100%{transform:scale(.6);opacity:.4}50%{transform:scale(1.1);opacity:1}}
+.tw{animation:tw 1.8s ease-in-out infinite}
+@keyframes ring{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.35);opacity:0}}
+.ring{animation:ring 2s ease-out infinite}
+@media (prefers-reduced-motion: reduce){.cf{display:none}.pop,.tw,.ring{animation:none}}

@@ -9,7 +9,7 @@ import secrets
 import time
 import unicodedata
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -147,6 +147,12 @@ class ConversationUpdate(BaseModel):
 
 class JourneyProgressUpdate(BaseModel):
     completed_steps: list[int] = Field(max_length=8)
+
+
+class JourneyDetailsUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    target_date: date | None = None
+    focus: list[str] = Field(default_factory=list, max_length=8)
 
 
 class AlertCreate(BaseModel):
@@ -771,6 +777,30 @@ def update_journey_progress(profile_id, journey_id, completed_steps):
         connection.close()
 
 
+def update_journey_details(profile_id, journey_id, title, target_date, focus):
+    details = json.dumps({
+        "target_date": target_date.isoformat() if target_date else None,
+        "focus": [item.strip()[:40] for item in focus if item.strip()],
+    })
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """update user_journeys
+                   set title = %s, journey = journey || %s::jsonb, updated_at = now()
+                   where profile_id = %s and id = %s returning id""",
+                (title.strip(), details, profile_id, str(journey_id)),
+            )
+            updated = cursor.fetchone()
+        connection.commit()
+        return bool(updated)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def delete_journey(profile_id, journey_id):
     connection = database_connection()
     try:
@@ -1214,6 +1244,27 @@ async def save_journey_progress(
         sorted(set(body.completed_steps)),
     )
     return {"completed_steps": sorted(set(body.completed_steps))}
+
+
+@app.patch("/api/journeys/{journey_id}")
+async def save_journey_details(
+    journey_id: UUID,
+    body: JourneyDetailsUpdate,
+    profile_id: str = Depends(require_guest),
+):
+    if not body.title.strip():
+        raise HTTPException(status_code=422, detail="Journey name cannot be empty.")
+    updated = await database_call(
+        update_journey_details,
+        profile_id,
+        journey_id,
+        body.title,
+        body.target_date,
+        body.focus,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Journey not found.")
+    return {"title": body.title.strip(), "target_date": body.target_date, "focus": body.focus}
 
 
 @app.delete("/api/journeys/{journey_id}")
