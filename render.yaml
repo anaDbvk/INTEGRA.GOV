@@ -20,6 +20,10 @@ services:
         sync: false
       - key: ANTHROPIC_FAST_MODEL
         sync: false
+      - key: WEB_SEARCH_DOMAINS
+        value: gov.pl,migrant.info.pl,udsc.gov.pl,nfz.gov.pl,zus.pl,podatki.gov.pl,biznes.gov.pl
+      - key: WEB_SEARCH_MAX_USES
+        value: 3
       - key: ADMIN_TOKEN
         sync: false
       - key: RATE_LIMIT_PER_MINUTE

@@ -103,7 +103,7 @@ python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000`. The app loads scrape artifacts automatically.
 Never put the Anthropic key or GitHub token in the UI or browser; they are read
 only by the backend. `ANTHROPIC_FAST_MODEL` optionally selects a less expensive
-model for Polish query rewriting; it defaults to `ANTHROPIC_MODEL`. Use model
+model for the web-research step; it defaults to `ANTHROPIC_MODEL`. Use model
 IDs enabled for your Anthropic account.
 
 Set `ADMIN_TOKEN` to a long random secret to protect the optional
@@ -165,6 +165,29 @@ login screen or in Profile › Preferences. The choice is saved in the browser,
 and the assistant answers in the same language. Official Polish terms (PESEL,
 NFZ, ZUS) stay untranslated.
 
+### How the assistant finds official information
+
+The assistant no longer reads scraped pages from Supabase. For each chat turn
+the backend makes two Anthropic calls:
+
+1. **Research**: Claude uses Anthropic's web search tool
+   (`web_search_20250305`), restricted to `WEB_SEARCH_DOMAINS`, to find and
+   summarise the relevant official pages with citations. Results from other
+   domains or non-HTTPS URLs are discarded by the backend. If the user's goal
+   is still unclear, it skips searching.
+2. **Interview or journey**: the cited research is passed to the
+   `return_journey_step` tool call, which either asks one follow-up question or
+   returns journey steps. Every step must cite one of the researched sources;
+   otherwise the request fails or the answer becomes "unsupported".
+
+Journeys, steps, progress, conversations and reminders are still saved in
+Supabase. Web search costs $10 per 1,000 searches plus the tokens of the
+search results, so a researched turn costs more and takes longer (roughly
+5–15 seconds) than the old database lookup. Web search must be enabled for the
+organisation in the Anthropic Console. The scraper and **Scrape and load**
+workflow remain in the repository for manual runs, but the weekly schedule is
+disabled.
+
 ### Supabase setup
 
 Run `supabase/schema.sql` first if it has not already been applied, then run
@@ -173,9 +196,9 @@ the private guest-profile, device, session, conversation, journey, and
 reminder tables. It enables row-level security without public policies; the
 server accesses these records using its private `DATABASE_URL`.
 
-The scraper loader now creates searchable text chunks for scraped pages.
-After applying the schema, run the **Scrape and load** GitHub Actions workflow
-to populate documents and chunks. Add the Supabase **Session pooler**
+The scraper loader creates searchable text chunks for scraped pages. The
+assistant now uses live web search instead (see above), so loading scraped
+pages is optional. If you still run the **Scrape and load** workflow, add the Supabase **Session pooler**
 connection string as `DATABASE_URL` in both GitHub Actions secrets (for the
 loader) and the Render service environment (for the app). Do not use the
 direct database connection string for GitHub Actions.
@@ -193,7 +216,9 @@ check path `/health`. Configure these service environment variables:
 | `APP_SESSION_SECRET` | Stable random secret of at least 32 characters; changing it prevents existing phone hashes from matching |
 | `ANTHROPIC_API_KEY` | Server-side Anthropic API key |
 | `ANTHROPIC_MODEL` | Model ID enabled for the Anthropic account |
-| `ANTHROPIC_FAST_MODEL` | Optional less expensive model for Polish query rewriting; defaults to `ANTHROPIC_MODEL` |
+| `ANTHROPIC_FAST_MODEL` | Optional less expensive model for the web-research step; defaults to `ANTHROPIC_MODEL` |
+| `WEB_SEARCH_DOMAINS` | Comma-separated official domains the assistant may search (subdomains included); defaults to `gov.pl,migrant.info.pl,udsc.gov.pl,nfz.gov.pl,zus.pl,podatki.gov.pl,biznes.gov.pl` |
+| `WEB_SEARCH_MAX_USES` | Maximum web searches per chat turn (1–8, default `3`) |
 | `ADMIN_TOKEN` | Optional long random secret for the restricted knowledge-upload endpoint |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP interview/session request limit; defaults to `10` |
 

@@ -20,6 +20,7 @@ from webapp.app import (
     require_guest,
     retrieve_pages,
     validate_page,
+    web_search_tool,
 )
 from load_to_supabase import CHUNK_OVERLAP, CHUNK_SIZE, split_into_chunks
 
@@ -39,6 +40,48 @@ def jsonl_page(
         "page_type": "government_process",
         "fetched_at": "2026-10-03T12:00:00+00:00",
     }
+
+
+def research_response(*results, stop_reason="end_turn", text="Report a death within three days.", cite=None):
+    citations = []
+    if cite:
+        citations.append(SimpleNamespace(
+            type="web_search_result_location",
+            url=cite,
+            title="Cited page",
+            cited_text="Report a death at the civil registry office within three days.",
+        ))
+    return SimpleNamespace(stop_reason=stop_reason, content=[
+        SimpleNamespace(type="server_tool_use", id="srvtoolu_1", name="web_search", input={"query": "zgłoszenie zgonu"}),
+        SimpleNamespace(type="web_search_tool_result", tool_use_id="srvtoolu_1", content=[
+            SimpleNamespace(type="web_search_result", url=url, title=title, page_age="March 3, 2026", encrypted_content="x")
+            for url, title in results
+        ]),
+        SimpleNamespace(type="text", text=text, citations=citations),
+    ])
+
+
+def journey_response(tool_input):
+    return SimpleNamespace(stop_reason="tool_use", content=[
+        SimpleNamespace(type="tool_use", name="return_journey_step", input=tool_input),
+    ])
+
+
+def fake_client(*responses):
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.messages = SimpleNamespace(create=AsyncMock(side_effect=list(responses)))
+            calls.append(self)
+
+        async def close(self):
+            return None
+
+    return FakeClient, calls
+
+
+OFFICIAL = ("https://www.gov.pl/web/gov/zglos-zgon", "Report death - Gov.pl")
 
 
 class AssistantTests(unittest.TestCase):
@@ -356,71 +399,128 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("małżeństwie", matches[0]["text"])
 
     def test_interview_returns_source_cited_journey_blocks(self):
-        app.state.pages = [validate_page(jsonl_page(), 1)]
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                self.messages = SimpleNamespace(
-                    create=AsyncMock(return_value=SimpleNamespace(content=[
-                        SimpleNamespace(
-                            type="tool_use",
-                            name="return_journey_step",
-                            input={
-                                "outcome": "journey",
-                                "message": "Here is a suggested journey.",
-                                "question": "",
-                                "needs_official_help": True,
-                                "journey_blocks": [{
-                                    "title": "Register the death",
-                                    "action": "Report it to the civil registry office.",
-                                    "where": "Civil registry office",
-                                    "documents": ["Death certificate", 7],
-                                    "fee": "No fee stated.",
-                                    "deadline": "Within three days.",
-                                    "source_ids": ["S1"],
-                                }],
-                            },
-                        )
-                    ]))
-                )
-
-            async def close(self):
-                return None
-
+        FakeClient, calls = fake_client(
+            research_response(OFFICIAL, cite=OFFICIAL[0]),
+            journey_response({
+                "outcome": "journey",
+                "message": "Here is a suggested journey.",
+                "question": "",
+                "needs_official_help": True,
+                "journey_blocks": [{
+                    "title": "Register the death",
+                    "action": "Report it to the civil registry office.",
+                    "where": "Civil registry office",
+                    "documents": ["Death certificate", 7],
+                    "fee": "No fee stated.",
+                    "deadline": "Within three days.",
+                    "source_ids": ["S1"],
+                }],
+            }),
+        )
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
                 json={"answer": "I need to report a death.", "language": "en"},
             )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["outcome"], "journey")
-        self.assertEqual(response.json()["journey_blocks"][0]["source_ids"], ["S1"])
-        self.assertEqual(response.json()["needs_official_help"], True)
-        self.assertEqual(response.json()["journey_blocks"][0]["documents"], ["Death certificate"])
-        self.assertEqual(response.json()["journey_blocks"][0]["where"], "Civil registry office")
-        self.assertEqual(response.json()["sources"][0]["url"], "https://www.gov.pl/web/gov/zglos-zgon")
+        body = response.json()
+        self.assertEqual(body["outcome"], "journey")
+        self.assertEqual(body["journey_blocks"][0]["source_ids"], ["S1"])
+        self.assertEqual(body["needs_official_help"], True)
+        self.assertEqual(body["journey_blocks"][0]["documents"], ["Death certificate"])
+        self.assertEqual(body["journey_blocks"][0]["where"], "Civil registry office")
+        self.assertEqual(body["sources"][0]["url"], OFFICIAL[0])
+        self.assertEqual(body["sources"][0]["page_age"], "March 3, 2026")
 
-    def test_interview_can_ask_follow_up_when_evidence_is_not_yet_relevant(self):
-        app.state.pages = [validate_page(jsonl_page(), 1)]
+        create = calls[0].messages.create
+        research_call, journey_call = create.await_args_list
+        tool = research_call.kwargs["tools"][0]
+        self.assertEqual(tool["type"], "web_search_20250305")
+        self.assertIn("gov.pl", tool["allowed_domains"])
+        self.assertIn("migrant.info.pl", tool["allowed_domains"])
+        self.assertEqual(tool["max_uses"], 3)
+        self.assertEqual(journey_call.kwargs["tool_choice"]["name"], "return_journey_step")
+        prompt = journey_call.kwargs["messages"][-1]["content"]
+        self.assertIn("[S1] Report death - Gov.pl", prompt)
+        self.assertIn("Report a death within three days. [S1]", prompt)
+        self.assertIn("civil registry office within three days", prompt)
 
-        class FakeClient:
-            def __init__(self, **kwargs):
-                self.messages = SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(
-                    content=[SimpleNamespace(
-                        type="tool_use",
-                        name="return_journey_step",
-                        input={
-                            "outcome": "interview",
-                            "message": "I can help find an appropriate process.",
-                            "question": "Which city or process do you mean?",
-                            "journey_blocks": [],
-                        },
-                    )]
-                )))
+    def test_research_drops_results_outside_approved_domains(self):
+        FakeClient, calls = fake_client(
+            research_response(
+                ("https://example.com/fake-gov", "Fake guide"),
+                ("http://www.gov.pl/insecure", "Insecure"),
+                ("https://evilgov.pl/page", "Lookalike"),
+                ("https://udsc.gov.pl/cudzoziemcy/", "UDSC"),
+            ),
+            journey_response({
+                "outcome": "journey",
+                "message": "Plan.",
+                "question": "",
+                "needs_official_help": False,
+                "journey_blocks": [{"title": "Apply", "action": "Apply at the voivodeship office.", "source_ids": ["S1"]}],
+            }),
+        )
+        with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
+            response = self.client.post(
+                "/api/interview",
+                json={"answer": "I need a residence card.", "language": "pl"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([s["url"] for s in response.json()["sources"]], ["https://udsc.gov.pl/cudzoziemcy/"])
 
-            async def close(self):
-                return None
+    def test_research_continues_after_pause_turn(self):
+        FakeClient, calls = fake_client(
+            research_response(stop_reason="pause_turn", text=""),
+            research_response(OFFICIAL),
+            journey_response({
+                "outcome": "interview",
+                "message": "I can help.",
+                "question": "Which city are you in?",
+                "journey_blocks": [],
+            }),
+        )
+        with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
+            response = self.client.post(
+                "/api/interview",
+                json={"answer": "I need to report a death.", "language": "en"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        create = calls[0].messages.create
+        self.assertEqual(create.await_count, 3)
+        continuation = create.await_args_list[1].kwargs["messages"]
+        self.assertEqual(continuation[-1]["role"], "assistant")
+        self.assertEqual(response.json()["sources"][0]["url"], OFFICIAL[0])
 
+    def test_journey_without_any_official_source_becomes_unsupported(self):
+        FakeClient, _ = fake_client(
+            SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="NO_RESEARCH", citations=None)]),
+            journey_response({
+                "outcome": "journey",
+                "message": "Plan.",
+                "question": "",
+                "journey_blocks": [{"title": "Do it", "action": "Go.", "source_ids": ["S1"]}],
+            }),
+        )
+        with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
+            response = self.client.post(
+                "/api/interview",
+                json={"answer": "Hello", "language": "en"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["outcome"], "unsupported")
+        self.assertEqual(response.json()["journey_blocks"], [])
+
+    def test_interview_can_ask_follow_up_without_research(self):
+        FakeClient, _ = fake_client(
+            SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="NO_RESEARCH", citations=None)]),
+            journey_response({
+                "outcome": "interview",
+                "message": "I can help find an appropriate process.",
+                "question": "Which city or process do you mean?",
+                "journey_blocks": [],
+            }),
+        )
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
@@ -429,39 +529,34 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["outcome"], "interview")
         self.assertEqual(response.json()["question"], "Which city or process do you mean?")
+        self.assertEqual(response.json()["sources"], [])
+
+    def test_configured_search_domains_override_defaults(self):
+        with patch.dict(os.environ, {"WEB_SEARCH_DOMAINS": "https://gov.pl/, zus.pl", "WEB_SEARCH_MAX_USES": "50"}):
+            tool = web_search_tool()
+        self.assertEqual(tool["allowed_domains"], ["gov.pl", "zus.pl"])
+        self.assertEqual(tool["max_uses"], 8)
 
     def test_interview_rejects_uncited_journey(self):
-        app.state.pages = [validate_page(jsonl_page(), 1)]
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                self.messages = SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(
-                    content=[SimpleNamespace(
-                        type="tool_use",
-                        name="return_journey_step",
-                        input={
-                            "outcome": "journey",
-                            "message": "Here is a plan.",
-                            "question": "",
-                            "journey_blocks": [{
-                                "title": "Do something",
-                                "action": "Go somewhere.",
-                                "source_ids": ["S404"],
-                            }],
-                        },
-                    )]
-                )))
-
-            async def close(self):
-                return None
-
+        FakeClient, _ = fake_client(
+            research_response(OFFICIAL),
+            journey_response({
+                "outcome": "journey",
+                "message": "Here is a plan.",
+                "question": "",
+                "journey_blocks": [{
+                    "title": "Do something",
+                    "action": "Go somewhere.",
+                    "source_ids": ["S404"],
+                }],
+            }),
+        )
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
                 json={"answer": "I need to report a death.", "language": "en"},
             )
         self.assertEqual(response.status_code, 502)
-
 
 if __name__ == "__main__":
     unittest.main()

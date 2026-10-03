@@ -9,8 +9,8 @@ on:
       sources_only:
         description: "Comma-separated source names (empty = all)"
         default: "gov.pl,mos,udsc,biznes,podatki,zus,nfz,migrant,krakow,warsaw,warsaw19115,krakow_district_01,krakow_district_02,krakow_district_03,krakow_district_04,krakow_district_05,krakow_district_06,krakow_district_07,krakow_district_08,krakow_district_09,krakow_district_10,krakow_district_11,krakow_district_12,krakow_district_13,krakow_district_14,krakow_district_15,krakow_district_16,krakow_district_17,krakow_district_18,warsaw_bemowo,warsaw_bialoleka,warsaw_bielany,warsaw_mokotow,warsaw_ochota,warsaw_praga_poludnie,warsaw_praga_polnoc,warsaw_rembertow,warsaw_srodmiescie,warsaw_targowek,warsaw_ursus,warsaw_ursynow,warsaw_wawer,warsaw_wesola,warsaw_wilanow,warsaw_wlochy,warsaw_wola,warsaw_zoliborz"
-  schedule:
-    - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
+  # Weekly schedule disabled: the assistant now searches official websites live.
+  # Run manually if you still want a snapshot in Supabase.
 
 jobs:
   scrape:
