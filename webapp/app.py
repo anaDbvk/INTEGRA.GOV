@@ -1,8 +1,11 @@
 import json
+import hmac
 import logging
 import math
 import os
 import re
+import time
+import unicodedata
 from collections import Counter
 from io import BytesIO
 from pathlib import Path
@@ -11,7 +14,8 @@ from urllib.parse import urlparse
 from zipfile import BadZipFile, ZipFile
 
 import anthropic
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import requests
@@ -29,6 +33,8 @@ MAX_EVIDENCE_PAGES = 5
 MAX_EVIDENCE_CHARS = 3_000
 MAX_GITHUB_RUNS = 20
 GITHUB_API = "https://api.github.com"
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+_rate_hits = {}
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
@@ -271,8 +277,10 @@ def ensure_default_dataset():
             return
         try:
             pages, artifact_count = load_github_dataset()
-        except HTTPException as error:
-            app.state.knowledge_error = str(error.detail)
+        except HTTPException:
+            app.state.knowledge_error = (
+                "Automatic GitHub artifact loading failed. Check the server logs."
+            )
             logger.exception("Could not load scraper pages from GitHub")
             return
         except RuntimeError:
@@ -438,7 +446,13 @@ async def public_config():
 @app.post("/api/knowledge")
 async def upload_knowledge(
     file: UploadFile = File(...),
+    x_admin_token: str = Header(default=""),
 ):
+    expected = os.getenv("ADMIN_TOKEN", "")
+    if not expected or not hmac.compare_digest(
+        x_admin_token.encode(), expected.encode()
+    ):
+        raise HTTPException(status_code=404, detail="Not found.")
     if not (file.filename or "").lower().endswith((".jsonl", ".ndjson")):
         raise HTTPException(status_code=415, detail="Choose a .jsonl or .ndjson artifact file.")
     pages = await load_jsonl(file)
@@ -449,7 +463,20 @@ async def upload_knowledge(
     return {"loaded_pages": len(pages)}
 
 
-@app.post("/api/interview")
+def check_rate_limit(request: Request):
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[-1].strip() if forwarded else "") or (
+        request.client.host if request.client else "unknown"
+    )
+    now = time.monotonic()
+    hits = _rate_hits.setdefault(ip, [])
+    hits[:] = [hit for hit in hits if now - hit < 60]
+    if len(hits) >= RATE_LIMIT_PER_MINUTE:
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait a minute.")
+    hits.append(now)
+
+
+@app.post("/api/interview", dependencies=[Depends(check_rate_limit)])
 async def interview(request: ChatRequest):
     ensure_default_dataset()
     pages = app.state.pages

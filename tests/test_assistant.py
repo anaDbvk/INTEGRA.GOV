@@ -56,6 +56,7 @@ class AssistantTests(unittest.TestCase):
             {
                 "ANTHROPIC_API_KEY": "test-api-key",
                 "ANTHROPIC_MODEL": "test-model",
+                "ADMIN_TOKEN": "test-admin",
             },
         )
         self.env.start()
@@ -182,6 +183,7 @@ class AssistantTests(unittest.TestCase):
         response = self.client.post(
             "/api/knowledge",
             files={"file": ("pages.jsonl", json.dumps(bad) + "\n")},
+            headers={"X-Admin-Token": "test-admin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(len(app.state.pages), 1)
@@ -203,6 +205,7 @@ class AssistantTests(unittest.TestCase):
         response = self.client.post(
             "/api/knowledge",
             files={"file": ("pl_gov_pages.jsonl", content)},
+            headers={"X-Admin-Token": "test-admin"},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["loaded_pages"], 2)
