@@ -121,6 +121,8 @@ class AssistantTests(unittest.TestCase):
         )
         self.env.start()
         self.addCleanup(self.env.stop)
+        for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "DATABASE_URL"):
+            os.environ.pop(name, None)
 
     def tearDown(self):
         app.state.pages = []
