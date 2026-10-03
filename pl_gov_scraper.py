@@ -22,7 +22,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-UA = "SmartIN-Scraper/0.2"
+UA = "SmartIN-Scraper/0.2 (+https://github.com/anaDbvk/SmartIN)"
 DELAY = float(os.getenv("REQUEST_DELAY", "2"))
 MAX_PAGES = int(os.getenv("MAX_PAGES", "100"))
 SKIP_URL_PARTS = (

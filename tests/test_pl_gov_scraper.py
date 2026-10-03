@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from pl_gov_scraper import (
+    UA,
     WARSAW_DISTRICTS,
     SOURCES,
     extract,
@@ -83,8 +84,8 @@ class ScraperTests(unittest.TestCase):
 
         with patch("pl_gov_scraper.get", return_value=Response()):
             parser = robots_for("https://example.gov")
-        self.assertTrue(parser.can_fetch("SmartIN-Scraper/0.2", "https://example.gov/public"))
-        self.assertFalse(parser.can_fetch("SmartIN-Scraper/0.2", "https://example.gov/private/page"))
+        self.assertTrue(parser.can_fetch(UA, "https://example.gov/public"))
+        self.assertFalse(parser.can_fetch(UA, "https://example.gov/private/page"))
 
         with patch("pl_gov_scraper.get", return_value=None):
             self.assertIsNone(robots_for("https://unavailable.gov"))
