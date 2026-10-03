@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1010" viewBox="0 0 1600 1010" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1B2A5C"/>
+    </marker>
+    <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#8A8FA6"/>
+    </marker>
+    <style>
+      .h{font-size:19px;font-weight:700;fill:#fff}
+      .sub{font-size:13px;fill:#E6EEFD}
+      .t{font-size:14px;fill:#18234A}
+      .s{font-size:12.5px;fill:#4A5373}
+      .b{font-weight:700}
+      .lbl{font-size:12.5px;fill:#1B2A5C;font-weight:600}
+      .lblg{font-size:12.5px;fill:#5F6685;font-style:italic}
+      .chip{font-size:12.5px;fill:#18234A;font-weight:600}
+    </style>
+  </defs>
+
+  <rect width="1600" height="1010" fill="#F6F3EE"/>
+  <text x="40" y="52" font-size="30" font-weight="700" fill="#18234A">SmartIN · Moving to Poland — technical architecture</text>
+  <text x="40" y="80" font-size="15" fill="#5F6685">Mobile-first web app · live official-source research with Claude · journeys stored in Supabase · deployed on Render from GitHub</text>
+
+  <!-- A. Client -->
+  <rect x="40" y="110" width="310" height="410" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="40" y="110" width="310" height="60" rx="20" fill="#2A5BD7"/><rect x="40" y="150" width="310" height="20" fill="#2A5BD7"/>
+  <text x="60" y="138" class="h">Smartphone browser</text>
+  <text x="60" y="159" class="sub">Mobile web app (SPA, also desktop)</text>
+  <text x="60" y="198" class="t b">Vanilla JS · HTML · CSS</text>
+  <text x="60" y="218" class="s">index.html · app.js · app.css · no framework</text>
+  <text x="60" y="248" class="t b">i18n.js — EN / PL / UK</text>
+  <text x="60" y="268" class="s">auto-detects phone language, switcher</text>
+  <text x="60" y="298" class="t b">History API</text>
+  <text x="60" y="318" class="s">phone Back button follows the app</text>
+  <text x="60" y="348" class="t b">Self-hosted fonts &amp; animations</text>
+  <text x="60" y="368" class="s">Lexend, Public Sans · scene.js / scenes.css</text>
+  <text x="60" y="398" class="t b">Screens</text>
+  <text x="60" y="418" class="s">Login · Home · Assistant chat · Creating</text>
+  <text x="60" y="436" class="s">My journeys · Journey · Step · Builder</text>
+  <text x="60" y="454" class="s">Explore · Alerts · Profile</text>
+  <text x="60" y="490" class="s">Session in HttpOnly cookies; no API keys</text>
+  <text x="60" y="508" class="s">or secrets in the browser</text>
+
+  <!-- B. Render / FastAPI -->
+  <rect x="430" y="110" width="510" height="410" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="430" y="110" width="510" height="60" rx="20" fill="#1B2A5C"/><rect x="430" y="150" width="510" height="20" fill="#1B2A5C"/>
+  <text x="450" y="138" class="h">Render · Web service</text>
+  <text x="450" y="159" class="sub">FastAPI · Python 3.12 · Uvicorn · auto-deploy from main</text>
+  <g>
+    <rect x="450" y="186" width="230" height="72" rx="12" fill="#E6EEFD"/>
+    <text x="464" y="208" class="t b">Static UI hosting</text>
+    <text x="464" y="228" class="s">GET / · /static/* · /health</text>
+    <text x="464" y="246" class="s">same origin, no CORS</text>
+
+    <rect x="694" y="186" width="230" height="72" rx="12" fill="#E6EEFD"/>
+    <text x="708" y="208" class="t b">Guest sessions</text>
+    <text x="708" y="228" class="s">phone → HMAC hash (no raw number)</text>
+    <text x="708" y="246" class="s">device + session cookies · rate limit</text>
+
+    <rect x="450" y="270" width="230" height="72" rx="12" fill="#EAF1DF"/>
+    <text x="464" y="292" class="t b">Journeys API</text>
+    <text x="464" y="312" class="s">create own · edit steps · progress</text>
+    <text x="464" y="330" class="s">name, target date, focus</text>
+
+    <rect x="694" y="270" width="230" height="72" rx="12" fill="#FDEDE2"/>
+    <text x="708" y="292" class="t b">Alerts &amp; conversation</text>
+    <text x="708" y="312" class="s">in-app reminders</text>
+    <text x="708" y="330" class="s">saved chat history</text>
+
+    <rect x="450" y="354" width="474" height="112" rx="12" fill="#EFE7F8"/>
+    <text x="464" y="377" class="t b">Assistant · POST /api/interview</text>
+    <text x="464" y="398" class="s">1  Research: Claude + web search, limited to the approved official domains</text>
+    <text x="464" y="417" class="s">2  Journey: forced tool return_journey_step → question or cited steps</text>
+    <text x="464" y="436" class="s">Guards: HTTPS + allowlisted sources only · every step cites S1…S8</text>
+    <text x="464" y="455" class="s">Domain allowlist from Supabase sources (5 min cache, env fallback)</text>
+  </g>
+  <text x="450" y="490" class="s">Pydantic validation · blocking DB I/O in thread pool · secrets in env vars:</text>
+  <text x="450" y="508" class="s">ANTHROPIC_API_KEY · DATABASE_URL · APP_SESSION_SECRET · WEB_SEARCH_*</text>
+
+  <!-- C. Anthropic -->
+  <rect x="1020" y="110" width="540" height="230" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="1020" y="110" width="540" height="60" rx="20" fill="#C25A14"/><rect x="1020" y="150" width="540" height="20" fill="#C25A14"/>
+  <text x="1040" y="138" class="h">Anthropic API</text>
+  <text x="1040" y="159" class="sub" style="fill:#FDEDE2">Claude Haiku 4.5 (configurable via ANTHROPIC_MODEL / _FAST_MODEL)</text>
+  <text x="1040" y="198" class="t b">Call 1 · Research</text>
+  <text x="1040" y="218" class="s">server tool web_search_20250305 · max_uses 3 · allowed_domains · location PL</text>
+  <text x="1040" y="236" class="s">answers only from cited search results · pause_turn continuation</text>
+  <text x="1040" y="266" class="t b">Call 2 · Journey</text>
+  <text x="1040" y="286" class="s">forced client tool return_journey_step (JSON schema)</text>
+  <text x="1040" y="304" class="s">outcome: interview | journey | unsupported · reply in EN / PL / UK</text>
+  <text x="1040" y="326" class="s">Billing: tokens + $10 per 1,000 searches</text>
+
+  <!-- D. Official websites -->
+  <rect x="1020" y="390" width="540" height="130" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="1020" y="390" width="540" height="52" rx="20" fill="#52771F"/><rect x="1020" y="422" width="540" height="20" fill="#52771F"/>
+  <text x="1040" y="423" class="h">Official Polish websites</text>
+  <text x="1040" y="466" class="s">gov.pl (incl. udsc, mos.cudzoziemcy, nfz, podatki, biznes) · zus.pl</text>
+  <text x="1040" y="486" class="s">migrant.info.pl · um.warszawa.pl (+ districts) · warszawa19115.pl</text>
+  <text x="1040" y="506" class="s">krakow.pl (+ districts) — list managed in Supabase table sources</text>
+
+  <!-- E. Supabase -->
+  <rect x="430" y="600" width="510" height="300" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="430" y="600" width="510" height="60" rx="20" fill="#3ECF8E"/><rect x="430" y="640" width="510" height="20" fill="#3ECF8E"/>
+  <text x="450" y="628" class="h" style="fill:#0B3B24">Supabase · PostgreSQL</text>
+  <text x="450" y="649" class="sub" style="fill:#0B3B24">Row-level security on · accessed only by the server</text>
+  <text x="450" y="690" class="t b">App data</text>
+  <text x="450" y="712" class="s">guest_profiles · guest_devices</text>
+  <text x="450" y="731" class="s">guest_sessions</text>
+  <text x="450" y="750" class="s">guest_conversations</text>
+  <text x="450" y="769" class="s">user_journeys</text>
+  <text x="462" y="787" class="s">jsonb steps, sources, progress</text>
+  <text x="450" y="806" class="s">in_app_alerts</text>
+  <text x="700" y="690" class="t b">Configuration</text>
+  <text x="700" y="712" class="s">sources</text>
+  <text x="712" y="730" class="s">assistant_enabled → search allowlist</text>
+  <text x="700" y="764" class="t b">Scraped knowledge (optional)</text>
+  <text x="700" y="786" class="s">raw_pages · documents · chunks</text>
+  <text x="712" y="804" class="s">not used by the live assistant</text>
+  <text x="450" y="850" class="s">Schema: supabase/schema.sql · supabase/app_tables.sql</text>
+  <text x="450" y="870" class="s">Connection: Session pooler string (IPv4) in DATABASE_URL</text>
+
+  <!-- F. GitHub -->
+  <rect x="40" y="600" width="310" height="300" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <rect x="40" y="600" width="310" height="60" rx="20" fill="#24292F"/><rect x="40" y="640" width="310" height="20" fill="#24292F"/>
+  <text x="60" y="628" class="h">GitHub · anaDbvk/SmartIN</text>
+  <text x="60" y="649" class="sub" style="fill:#D0D7DE">private repository</text>
+  <text x="60" y="688" class="t b">Code &amp; delivery</text>
+  <text x="60" y="708" class="s">webapp/ · tests/ (unittest, offline mocks)</text>
+  <text x="60" y="726" class="s">render.yaml blueprint → Render deploy</text>
+  <text x="60" y="756" class="t b">Actions · "Scrape and load" (manual)</text>
+  <text x="60" y="776" class="s">pl_gov_scraper.py — requests,</text>
+  <text x="60" y="794" class="s">BeautifulSoup, lxml, robots.txt, delay,</text>
+  <text x="60" y="812" class="s">PII redaction, parallel sources</text>
+  <text x="60" y="832" class="s">→ JSONL artifact</text>
+  <text x="60" y="850" class="s">→ load_to_supabase.py (psycopg2)</text>
+  <text x="60" y="880" class="s">Secret: DATABASE_URL</text>
+
+  <!-- G. Key technologies -->
+  <rect x="1020" y="600" width="540" height="300" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
+  <text x="1040" y="636" font-size="19" font-weight="700" fill="#18234A">Key technologies</text>
+  <g>
+    <rect x="1040" y="654" width="160" height="34" rx="17" fill="#E6EEFD"/><text x="1120" y="676" text-anchor="middle" class="chip">Vanilla JS SPA</text>
+    <rect x="1210" y="654" width="160" height="34" rx="17" fill="#E6EEFD"/><text x="1290" y="676" text-anchor="middle" class="chip">i18n EN·PL·UK</text>
+    <rect x="1380" y="654" width="160" height="34" rx="17" fill="#E6EEFD"/><text x="1460" y="676" text-anchor="middle" class="chip">History API</text>
+
+    <rect x="1040" y="698" width="160" height="34" rx="17" fill="#E8EAF2"/><text x="1120" y="720" text-anchor="middle" class="chip">Python 3.12</text>
+    <rect x="1210" y="698" width="160" height="34" rx="17" fill="#E8EAF2"/><text x="1290" y="720" text-anchor="middle" class="chip">FastAPI · Pydantic</text>
+    <rect x="1380" y="698" width="160" height="34" rx="17" fill="#E8EAF2"/><text x="1460" y="720" text-anchor="middle" class="chip">Uvicorn</text>
+
+    <rect x="1040" y="742" width="160" height="34" rx="17" fill="#FDEDE2"/><text x="1120" y="764" text-anchor="middle" class="chip">Claude Haiku 4.5</text>
+    <rect x="1210" y="742" width="160" height="34" rx="17" fill="#FDEDE2"/><text x="1290" y="764" text-anchor="middle" class="chip">Web search tool</text>
+    <rect x="1380" y="742" width="160" height="34" rx="17" fill="#FDEDE2"/><text x="1460" y="764" text-anchor="middle" class="chip">Anthropic SDK</text>
+
+    <rect x="1040" y="786" width="160" height="34" rx="17" fill="#DDF5E8"/><text x="1120" y="808" text-anchor="middle" class="chip">Supabase Postgres</text>
+    <rect x="1210" y="786" width="160" height="34" rx="17" fill="#DDF5E8"/><text x="1290" y="808" text-anchor="middle" class="chip">psycopg2 · JSONB</text>
+    <rect x="1380" y="786" width="160" height="34" rx="17" fill="#DDF5E8"/><text x="1460" y="808" text-anchor="middle" class="chip">Row-level security</text>
+
+    <rect x="1040" y="830" width="160" height="34" rx="17" fill="#EAEEF2"/><text x="1120" y="852" text-anchor="middle" class="chip">Render (free)</text>
+    <rect x="1210" y="830" width="160" height="34" rx="17" fill="#EAEEF2"/><text x="1290" y="852" text-anchor="middle" class="chip">GitHub Actions</text>
+    <rect x="1380" y="830" width="160" height="34" rx="17" fill="#EAEEF2"/><text x="1460" y="852" text-anchor="middle" class="chip">BeautifulSoup · lxml</text>
+  </g>
+  <text x="1040" y="886" class="s">HMAC-hashed phone IDs · HttpOnly cookies · secrets only in env</text>
+
+  <!-- Arrows -->
+  <line x1="350" y1="300" x2="428" y2="300" stroke="#1B2A5C" stroke-width="2.2" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="389" y="286" text-anchor="middle" class="lbl">HTTPS</text>
+  <text x="389" y="322" text-anchor="middle" class="lbl">JSON API</text>
+  <text x="389" y="338" text-anchor="middle" class="lbl">+ cookies</text>
+
+  <line x1="940" y1="250" x2="1018" y2="250" stroke="#1B2A5C" stroke-width="2.2" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="979" y="236" text-anchor="middle" class="lbl">2 calls</text>
+  <text x="979" y="272" text-anchor="middle" class="lbl">per turn</text>
+
+  <line x1="1290" y1="340" x2="1290" y2="388" stroke="#1B2A5C" stroke-width="2.2" marker-end="url(#ah)"/>
+  <text x="1302" y="369" class="lbl">web_search (allowed_domains only)</text>
+
+  <line x1="685" y1="520" x2="685" y2="598" stroke="#1B2A5C" stroke-width="2.2" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="697" y="556" class="lbl">psycopg2 · Session pooler · SQL</text>
+
+  <polyline points="300,600 300,548 500,548 500,522" fill="none" stroke="#8A8FA6" stroke-width="2" marker-end="url(#ahg)"/>
+  <text x="310" y="540" class="lblg">git push → auto-deploy</text>
+
+  <line x1="350" y1="840" x2="428" y2="840" stroke="#8A8FA6" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ahg)"/>
+  <text x="389" y="828" text-anchor="middle" class="lblg">load</text>
+
+  <polyline points="350,780 385,780 385,575 985,575 985,470 1018,470" fill="none" stroke="#8A8FA6" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ahg)"/>
+  <text x="760" y="592" class="lblg">scraper crawl (manual, optional)</text>
+
+  <text x="40" y="950" font-size="13" fill="#5F6685">Solid lines: live request path · Dashed lines: optional manual scraping pipeline · Grey: delivery</text>
+  <text x="40" y="972" font-size="13" fill="#5F6685">Each chat turn: browser → FastAPI → Claude researches official sites → Claude returns a cited step plan → saved to user_journeys → shown as a journey.</text>
+</svg>

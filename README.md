@@ -148,6 +148,8 @@ verifying claims.
 
 ## Moving to Poland web app
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical architecture diagram.
+
 `webapp/` contains the smartphone-first FastAPI app that follows
 `Moving to Poland – App Design (1).html` (Lexend/Public Sans fonts are
 self-hosted in `webapp/static/fonts`, the animations are in `scenes.css` and
