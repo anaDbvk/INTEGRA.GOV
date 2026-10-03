@@ -5,11 +5,11 @@ housing, death, taxes, business, local events). A scraper collects official
 pages; a FastAPI app answers from cited excerpts.
 
 ## Layout
-- pl_gov_scraper.py: crawler. Must obey robots.txt, stay on each source host,
+- `pl_gov_scraper.py`: crawler. Must obey robots.txt, stay on each source host,
   rate-limit requests, and redact personal identifiers.
-- load_to_supabase.py + supabase/schema.sql: Postgres loader and schema.
-- webapp/app.py + webapp/static/index.html: assistant backend and chat UI.
-- tests/: unittest. Run `python -m unittest` from the repo root.
+- `load_to_supabase.py` + `supabase/schema.sql`: Postgres loader and schema.
+- `webapp/app.py` + `webapp/static/index.html`: assistant backend and chat UI.
+- `tests/`: unittest. Run `python -m unittest` from the repo root.
 
 ## Rules
 - Never weaken scraper politeness (robots.txt, same-site check, delay) or PII redaction.
