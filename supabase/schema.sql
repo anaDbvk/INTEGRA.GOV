@@ -1,6 +1,8 @@
 -- SmartIN schema for Supabase Postgres.
 -- Matches load_to_supabase.py. Vector size 1024 must match your embedding model.
 
+set search_path = public, extensions;
+
 create extension if not exists vector with schema extensions;
 create extension if not exists unaccent with schema extensions;
 
@@ -70,12 +72,12 @@ create table if not exists chunks (
   document_id bigint not null references documents(id) on delete cascade,
   chunk_index int not null,
   content     text not null,
-  embedding   extensions.vector(1024),
+  embedding   vector(1024),
   tsv         tsvector,
   unique (document_id, chunk_index)
 );
 create index if not exists chunks_embedding_idx
-  on chunks using hnsw (embedding extensions.vector_cosine_ops);
+  on chunks using hnsw (embedding vector_cosine_ops);
 create index if not exists chunks_tsv_idx on chunks using gin (tsv);
 
 create or replace function chunks_set_tsv() returns trigger
@@ -123,7 +125,7 @@ alter table journeys   enable row level security;
 -- query_tsq: prefix tsquery built by the app from stemmed tokens,
 -- e.g. 'malzen:* | slub:*'. Reciprocal rank fusion of semantic + keyword hits.
 create or replace function match_chunks(
-  query_embedding      extensions.vector(1024),
+  query_embedding      vector(1024),
   query_tsq            text,
   filter_jurisdictions text[] default null,
   filter_category      text   default null,
@@ -180,7 +182,7 @@ as $$
   limit match_count;
 $$;
 
-revoke execute on function match_chunks(extensions.vector, text, text[], text, int)
+revoke execute on function match_chunks(vector, text, text[], text, int)
   from public, anon, authenticated;
 
 -- ------------------------------------------------------------------ seed
