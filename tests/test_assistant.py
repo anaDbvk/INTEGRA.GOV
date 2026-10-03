@@ -169,6 +169,31 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("GITHUB_REPOSITORY", response.json()["knowledge_error"])
 
+    def test_status_does_not_expose_raw_github_errors(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "GITHUB_TOKEN": "test-github-token",
+                    "GITHUB_REPOSITORY": "owner/repo",
+                },
+            ),
+            patch(
+                "webapp.app.load_github_dataset",
+                side_effect=HTTPException(
+                    status_code=400,
+                    detail="private upstream error text",
+                ),
+            ),
+        ):
+            response = self.client.get("/api/status")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("private upstream error text", response.text)
+        self.assertEqual(
+            response.json()["knowledge_error"],
+            "Automatic GitHub artifact loading failed. Check the server logs.",
+        )
+
     def test_github_api_errors_are_wrapped_as_bad_request(self):
         with patch("webapp.app.requests.get") as get:
             get.return_value.raise_for_status.side_effect = requests.HTTPError(
@@ -190,6 +215,13 @@ class AssistantTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(len(app.state.pages), 1)
+
+    def test_upload_requires_admin_token(self):
+        response = self.client.post(
+            "/api/knowledge",
+            files={"file": ("pages.jsonl", json.dumps(jsonl_page()) + "\n")},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_upload_upgrades_legacy_http_source_links_to_https(self):
         page = validate_page(jsonl_page(url="http://www.gov.pl/report"), 1)

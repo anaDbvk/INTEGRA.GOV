@@ -1,6 +1,7 @@
 anthropic
 beautifulsoup4
 fastapi
+httpx
 lxml
 psycopg2-binary
 python-multipart
