@@ -1,7 +1,7 @@
 # Polish government and city information scraper
 
 This project collects public service guidance from Polish government sites and
-public event/district pages from Kraków and Warsaw. It writes one JSON object
+public event/district pages from KrakÃ³w and Warsaw. It writes one JSON object
 per line to `pl_gov_pages.jsonl`. The weekly GitHub Actions workflow retains
 the output as an artifact and attempts to load it into Supabase; scrape
 artifacts are not committed to the repository.
@@ -10,9 +10,9 @@ artifacts are not committed to the repository.
 
 The default run covers official national sources (`gov.pl`, `mos`, `udsc`,
 `biznes`, `podatki`, `zus`, and `nfz`), the migrant information portal, and
-official municipal sources for Kraków and Warsaw. Government-service seeds
+official municipal sources for KrakÃ³w and Warsaw. Government-service seeds
 include citizen services, reporting a death, address registration, PESEL, and
-civil registry record copies. Kraków's official district directory, events
+civil registry record copies. KrakÃ³w's official district directory, events
 calendar, and 18 district portals, plus each of Warsaw's 18 official district
 portals, are seeded. The
 crawler follows relevant same-site links from those pages and observes each
@@ -36,8 +36,8 @@ the artifact before relying on the date filter.
 
 ## Run it
 
-Install `requirements.txt` and run `pl_gov_scraper.py`, or use **Actions →
-Scrape Polish government and city pages → Run workflow**. The workflow defaults
+Install `requirements.txt` and run `pl_gov_scraper.py`, or use **Actions â†’
+Scrape Polish government and city pages â†’ Run workflow**. The workflow defaults
 to 100 pages per configured source, uploads a `pl_gov_pages` artifact with
 90-day retention even if the scrape job fails partway, and runs weekly on
 Mondays. After a successful scrape it attempts to load the JSONL into Supabase.
@@ -150,8 +150,10 @@ verifying claims.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical architecture diagram.
 
+Production readiness plan: [docs/PRODUCTION_ROADMAP.md](docs/PRODUCTION_ROADMAP.md).
+
 `webapp/` contains the smartphone-first FastAPI app that follows
-`Moving to Poland – App Design (1).html` (Lexend/Public Sans fonts are
+`Moving to Poland â€“ App Design (1).html` (Lexend/Public Sans fonts are
 self-hosted in `webapp/static/fonts`, the animations are in `scenes.css` and
 `scene.js`). It provides a guided interview in English, Polish or Ukrainian,
 cited official-source journeys, private saved conversations and journeys
@@ -163,7 +165,7 @@ separate frontend hosting is needed.
 The whole interface is translated into English, Polish and Ukrainian
 (`webapp/static/i18n.js`). On first visit the language follows the phone's
 language, otherwise English; users can switch it with the globe button on the
-login screen or in Profile › Preferences. The choice is saved in the browser,
+login screen or in Profile â€º Preferences. The choice is saved in the browser,
 and the assistant answers in the same language. Official Polish terms (PESEL,
 NFZ, ZUS) stay untranslated.
 
@@ -209,7 +211,7 @@ the backend makes two Anthropic calls:
 Journeys, steps, progress, conversations and reminders are still saved in
 Supabase. Web search costs $10 per 1,000 searches plus the tokens of the
 search results, so a researched turn costs more and takes longer (roughly
-5–15 seconds) than the old database lookup. Web search must be enabled for the
+5â€“15 seconds) than the old database lookup. Web search must be enabled for the
 organisation in the Anthropic Console. The scraper and **Scrape and load**
 workflow remain in the repository for manual runs, but the weekly schedule is
 disabled.
@@ -244,7 +246,7 @@ check path `/health`. Configure these service environment variables:
 | `ANTHROPIC_MODEL` | Model ID enabled for the Anthropic account |
 | `ANTHROPIC_FAST_MODEL` | Optional less expensive model for the web-research step; defaults to `ANTHROPIC_MODEL` |
 | `WEB_SEARCH_DOMAINS` | Fallback comma-separated official domains when the Supabase `sources` table cannot be used (subdomains included); defaults to `gov.pl,migrant.info.pl,udsc.gov.pl,nfz.gov.pl,zus.pl,podatki.gov.pl,biznes.gov.pl` |
-| `WEB_SEARCH_MAX_USES` | Maximum web searches per chat turn (1–8, default `3`) |
+| `WEB_SEARCH_MAX_USES` | Maximum web searches per chat turn (1â€“8, default `3`) |
 | `ADMIN_TOKEN` | Optional long random secret for the restricted knowledge-upload endpoint |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP interview/session request limit; defaults to `10` |
 
