@@ -222,7 +222,7 @@ def links_to_follow(source, page_url, links, base):
         elif source == "krakow":
             in_district_directory = "dzielnice" in page_path
             should_follow = (
-                ("dzielnice" in target_path if in_district_directory else False)
+                (bool(DISTRICT_RE.search(target_path)) if in_district_directory else False)
                 or bool(EVENT_RE.search(f"{target_path} {link_text}"))
             )
         elif source == "warsaw":

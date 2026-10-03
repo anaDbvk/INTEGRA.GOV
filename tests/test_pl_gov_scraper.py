@@ -42,6 +42,7 @@ class ScraperTests(unittest.TestCase):
     def test_city_directory_follows_districts_and_event_links_but_not_contact_pages(self):
         links = [
             ("https://www.krakow.pl/dzielnice/nowa_huta", "Nowa Huta"),
+            ("https://www.krakow.pl/dzielnica_i_stare_miasto/", "Stare Miasto"),
             ("https://www.krakow.pl/kalendarz/wydarzenie", "Wydarzenie"),
             ("https://www.krakow.pl/kontakt", "Kontakt"),
             ("https://example.com/dzielnice", "Dzielnice"),
@@ -54,6 +55,7 @@ class ScraperTests(unittest.TestCase):
             followed,
             [
                 "https://www.krakow.pl/dzielnice/nowa_huta",
+                "https://www.krakow.pl/dzielnica_i_stare_miasto/",
                 "https://www.krakow.pl/kalendarz/wydarzenie",
             ],
         )
