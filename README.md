@@ -45,3 +45,56 @@ The crawler does not run JavaScript. Some calendars or government pages may
 therefore be incomplete, and the page limit can exclude districts or events.
 PII redaction is best-effort (common emails, phone numbers, and identifiers);
 it does not remove names or guarantee that all personal data is redacted.
+
+## SmartIN assistant draft
+
+`webapp/` contains a guided-interview UI and a small FastAPI backend. The
+assistant asks one follow-up at a time, then returns an ordered set of
+source-cited journey blocks. It interviews in English, Polish, or Ukrainian
+and searches an uploaded scraper JSONL artifact locally. Only the conversation
+and up to five matching page excerpts are sent to Anthropic. Uploaded pages
+live in process memory only: restarting the app or loading another artifact
+clears/replaces them. The assistant does not automatically download artifacts
+from GitHub; download `pl_gov_pages` from a workflow run, extract
+`pl_gov_pages.jsonl`, then upload it in the UI.
+
+Run it locally from the repository root:
+
+```powershell
+python -m pip install -r requirements.txt
+$env:APP_ACCESS_TOKEN = "choose-a-long-random-private-token"
+$env:ANTHROPIC_API_KEY = "your-Anthropic-API-key"
+$env:ANTHROPIC_MODEL = "your-enabled-Claude-model-id"
+python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000`, enter `APP_ACCESS_TOKEN`, connect, and upload the
+extracted JSONL. Never put the Anthropic key in the UI or browser; it is read
+only by the backend. Use a currently enabled model ID from your Anthropic
+account. The user-entered app token protects the API in this single-user draft,
+but is not a replacement for production identity management, abuse prevention,
+or deployment behind HTTPS and your platform's normal authentication.
+
+To embed it in another page after deploying the backend, use an iframe:
+
+```html
+<iframe
+  src="https://YOUR-PRIVATE-APP-HOST/"
+  title="SmartIN Poland information assistant"
+  width="100%"
+  height="760"
+  loading="lazy"
+></iframe>
+```
+
+Set `EMBED_PARENT_ORIGIN` to the exact HTTPS origin of the host platform to
+allow the iframe to send a `smartin:journey-ready` `postMessage` containing the
+suggested journey blocks and source links. The host platform must permit
+framing the app, and its integration must verify the message's origin and
+source window before using the blocks to navigate to its next screen. Do not
+make this shared-token draft public. Questions and selected scraped excerpts
+are sent to Anthropic; because source redaction is best-effort, users should
+not submit personal or sensitive data. The first version uses local lexical
+retrieval rather than embeddings and does not persist uploaded pages or chat
+history. It gives citations to the retrieved pages rather than independently
+verifying claims.

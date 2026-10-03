@@ -1,4 +1,8 @@
-requests
+anthropic
 beautifulsoup4
+fastapi
 lxml
 psycopg2-binary
+python-multipart
+requests
+uvicorn[standard]
