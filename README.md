@@ -9,12 +9,12 @@ as an artifact and does not load it into a database or commit it to the repo.
 
 The default run covers official national sources (`gov.pl`, `mos`, `udsc`,
 `biznes`, `podatki`, `zus`, and `nfz`), the migrant information portal, and
-official municipal sources for Kraków and Warsaw. Government-service seeds include
-citizen services, reporting a death, address registration, PESEL, and civil
-registry record copies. Kraków's official district directory and events
-calendar and Warsaw's events calendar and district directory are also seeded.
-The crawler follows relevant same-site links from those pages and observes
-each site's `robots.txt`.
+official municipal sources for Kraków and Warsaw. Government-service seeds
+include citizen services, reporting a death, address registration, PESEL, and
+civil registry record copies. Kraków's official district directory and events
+calendar and each of Warsaw's 18 official district portals are seeded. The
+crawler follows relevant same-site links from those pages and observes each
+site's `robots.txt`; a disallowed or unreachable site is skipped, not bypassed.
 
 `MAX_PAGES` limits fetched pages **per source**. `SOURCES_ONLY` is a
 comma-separated list of source names; leave it empty to include all configured
@@ -22,7 +22,7 @@ sources. For example:
 
 ```text
 MAX_PAGES=100
-SOURCES_ONLY=gov.pl,krakow,warsaw,warsaw_districts
+SOURCES_ONLY=gov.pl,krakow,warsaw,warsaw_mokotow,warsaw_wola
 ```
 
 The JSONL rows include a `page_type`, source URL, extracted text, related

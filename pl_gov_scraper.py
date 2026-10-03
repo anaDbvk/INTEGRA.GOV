@@ -41,10 +41,18 @@ SOURCES = {
     "nfz": "https://www.nfz.gov.pl",
     "migrant": "https://migrant.info.pl",
     "warsaw": "https://um.warszawa.pl",
-    "warsaw_districts": "https://radawarszawy.um.warszawa.pl",
     "warsaw19115": "https://warszawa19115.pl",
     "krakow": "https://www.krakow.pl",
 }
+
+WARSAW_DISTRICTS = (
+    "bemowo", "bialoleka", "bielany", "mokotow", "ochota",
+    "pragapoludnie", "pragapolnoc", "rembertow", "srodmiescie",
+    "targowek", "ursus", "ursynow", "wawer", "wesola", "wilanow",
+    "wlochy", "wola", "zoliborz",
+)
+for district in WARSAW_DISTRICTS:
+    SOURCES[f"warsaw_{district}"] = f"https://{district}.um.warszawa.pl"
 
 GOV_SERVICE_SEEDS = (
     "https://www.gov.pl/web/gov/uslugi-dla-obywatela",
@@ -65,15 +73,20 @@ SEED_URLS = {
         "https://um.warszawa.pl/kalendarz",
         "https://um.warszawa.pl/urzad/urzedy-dzielnic",
     ),
-    "warsaw_districts": (
-        "https://radawarszawy.um.warszawa.pl/dzielnice/Strony/glowna.aspx",
-    ),
 }
+for district in WARSAW_DISTRICTS:
+    district_base = SOURCES[f"warsaw_{district}"]
+    SEED_URLS[f"warsaw_{district}"] = (
+        district_base.rstrip("/") + "/kalendarz",
+        district_base.rstrip("/") + "/",
+    )
 
 OFFICIAL_PROCESS_SOURCES = {
     "gov.pl", "mos", "udsc", "biznes", "podatki", "zus", "nfz",
 }
-CITY_SOURCES = {"krakow", "warsaw", "warsaw_districts", "warsaw19115"}
+CITY_SOURCES = {"krakow", "warsaw", "warsaw19115"} | {
+    f"warsaw_{district}" for district in WARSAW_DISTRICTS
+}
 EVENT_RE = re.compile(
     r"wydarzen|wydar|imprez|spotkan|posiedzen|konsultac|kalendar|"
     r"\bevent\b|\bcalendar\b|piknik|warsztat|dyzur|dyżur|agenda",
@@ -206,11 +219,8 @@ def links_to_follow(source, page_url, links, base):
                 or (in_district_directory and bool(DISTRICT_RE.search(target_path)))
                 or bool(EVENT_RE.search(f"{target_path} {link_text}"))
             )
-        elif source == "warsaw_districts":
-            should_follow = (
-                "dzielnic" in target_path
-                or bool(EVENT_RE.search(f"{target_path} {link_text}"))
-            )
+        elif source.startswith("warsaw_"):
+            should_follow = bool(EVENT_RE.search(f"{target_path} {link_text}"))
         elif source in CITY_SOURCES:
             should_follow = bool(EVENT_RE.search(f"{target_path} {link_text}"))
         else:
@@ -222,18 +232,25 @@ def links_to_follow(source, page_url, links, base):
 
 def robots_for(base):
     parser = urllib.robotparser.RobotFileParser()
-    parser.set_url(base.rstrip("/") + "/robots.txt")
-    try:
-        parser.read()
-    except OSError as error:
-        print(f"robots.txt unavailable for {base}; skipping source: {error}")
+    robots_url = base.rstrip("/") + "/robots.txt"
+    parser.set_url(robots_url)
+    response = get(robots_url, timeout=10)
+    if response is None:
+        print(f"robots.txt unavailable for {base}; skipping source")
+        return None
+    if response.status_code == 200:
+        parser.parse(response.text.splitlines())
+    elif response.status_code == 404:
+        parser.parse([])
+    else:
+        print(f"robots.txt returned HTTP {response.status_code} for {base}; skipping source")
         return None
     return parser
 
 
-def get(url):
+def get(url, timeout=20):
     try:
-        response = session.get(url, timeout=20)
+        response = session.get(url, timeout=timeout)
     except requests.RequestException as error:
         print(f"request failed for {url}: {error}")
         return None

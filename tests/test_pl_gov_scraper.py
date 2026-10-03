@@ -1,10 +1,14 @@
 import unittest
+from unittest.mock import patch
 
 from pl_gov_scraper import (
+    WARSAW_DISTRICTS,
+    SOURCES,
     extract,
     links_to_follow,
     page_type,
     parse_event_date,
+    robots_for,
     same_site,
 )
 
@@ -53,6 +57,13 @@ class ScraperTests(unittest.TestCase):
             ],
         )
 
+    def test_all_warsaw_district_sources_are_configured(self):
+        self.assertEqual(len(WARSAW_DISTRICTS), 18)
+        for district in WARSAW_DISTRICTS:
+            source = f"warsaw_{district}"
+            self.assertIn(source, SOURCES)
+            self.assertTrue(SOURCES[source].startswith(f"https://{district}.um.warszawa.pl"))
+
     def test_page_classification_and_polish_date_parsing(self):
         self.assertEqual(
             page_type("gov.pl", "https://www.gov.pl/web/gov/zglos-zgon", "Zgłoś zgon"),
@@ -64,6 +75,19 @@ class ScraperTests(unittest.TestCase):
         )
         self.assertEqual(parse_event_date("20 października 2026"), parse_event_date("2026-10-20"))
         self.assertIsNone(parse_event_date("not a date"))
+
+    def test_robots_rules_are_respected_and_unavailable_robots_fail_closed(self):
+        class Response:
+            status_code = 200
+            text = "User-agent: *\nDisallow: /private/\n"
+
+        with patch("pl_gov_scraper.get", return_value=Response()):
+            parser = robots_for("https://example.gov")
+        self.assertTrue(parser.can_fetch("SmartIN-Scraper/0.2", "https://example.gov/public"))
+        self.assertFalse(parser.can_fetch("SmartIN-Scraper/0.2", "https://example.gov/private/page"))
+
+        with patch("pl_gov_scraper.get", return_value=None):
+            self.assertIsNone(robots_for("https://unavailable.gov"))
 
 
 if __name__ == "__main__":
