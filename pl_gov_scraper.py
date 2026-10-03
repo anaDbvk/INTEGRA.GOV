@@ -356,6 +356,7 @@ def run(out_path="pl_gov_pages.jsonl"):
             queued = set(seeds)
             visited = set()
             count = 0
+            saved = 0
             sitemap_pages = None
 
             while count < MAX_PAGES:
@@ -418,10 +419,11 @@ def run(out_path="pl_gov_pages.jsonl"):
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 }, ensure_ascii=False) + "\n")
                 total += 1
+                saved += 1
                 if count % 25 == 0:
                     print(f"{name}: fetched {count}/{MAX_PAGES} pages")
 
-            print(f"{name}: saved {sum(1 for _ in visited)} visited URLs")
+            print(f"{name}: saved {saved} pages from {len(visited)} visited URLs")
     print(f"done: saved {total} pages to {out_path}")
 
 
