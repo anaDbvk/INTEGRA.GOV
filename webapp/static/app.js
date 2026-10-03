@@ -505,6 +505,7 @@ function renderCreating() {
       clearInterval(timer);
       bar.style.background = "#52771F";
       document.getElementById("cFoot").innerHTML = `<button class="btn btn-primary" type="button" data-act="see-journey">${t("creating.see")}</button>`;
+      setTimeout(() => { if (state.page === "creating") go("ready"); }, 1500);
     }
   }, 120);
 }
