@@ -1,0 +1,48 @@
+name: Scrape and load
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: "Max pages per source"
+        default: "100"
+      sources_only:
+        description: "Comma-separated source names (empty = all)"
+        default: "migrant"
+      load_to_db:
+        description: "Load results into Supabase"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Scrape
+        env:
+          MAX_PAGES: ${{ inputs.max_pages || '300' }}
+          SOURCES_ONLY: ${{ inputs.sources_only || '' }}
+        run: python pl_gov_scraper.py
+
+      - name: Save output
+        uses: actions/upload-artifact@v4
+        with:
+          name: pl_gov_pages
+          path: pl_gov_pages.jsonl
+          if-no-files-found: warn
+
+      - name: Load into Supabase
+        if: ${{ github.event_name == 'schedule' || inputs.load_to_db }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python load_to_supabase.py pl_gov_pages.jsonl
