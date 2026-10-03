@@ -147,7 +147,7 @@ def github_get_json(url, headers):
         return response.json()
     except (requests.RequestException, ValueError) as error:
         logger.exception("GitHub artifact API request failed")
-        raise RuntimeError(f"Could not read scrape artifacts from GitHub: {error}") from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 def download_artifact(artifact, headers):
@@ -236,6 +236,10 @@ def ensure_default_dataset():
             return
         try:
             pages, artifact_count = load_github_dataset()
+        except HTTPException as error:
+            app.state.knowledge_error = str(error.detail)
+            logger.exception("Could not load scraper pages from GitHub")
+            return
         except RuntimeError:
             app.state.knowledge_error = (
                 "Automatic GitHub artifact loading failed. Check Render logs and the "

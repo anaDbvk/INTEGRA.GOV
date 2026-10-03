@@ -6,9 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import requests
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from webapp.app import app, load_github_dataset, retrieve_pages, validate_page
+from webapp.app import app, github_get_json, load_github_dataset, retrieve_pages, validate_page
 
 
 def jsonl_page(
@@ -125,6 +127,17 @@ class AssistantTests(unittest.TestCase):
             response = self.client.get("/api/status")
         self.assertEqual(response.status_code, 200)
         self.assertIn("GITHUB_REPOSITORY", response.json()["knowledge_error"])
+
+    def test_github_api_errors_are_wrapped_as_bad_request(self):
+        with patch("webapp.app.requests.get") as get:
+            get.return_value.raise_for_status.side_effect = requests.HTTPError(
+                "404 Client Error: Not Found"
+            )
+            with self.assertRaises(HTTPException) as raised:
+                github_get_json("https://api.github.com/test", {})
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(raised.exception.detail, "404 Client Error: Not Found")
+        self.assertIsInstance(raised.exception.__cause__, requests.HTTPError)
 
     def test_upload_rejects_non_http_url_and_keeps_previous_knowledge(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]
