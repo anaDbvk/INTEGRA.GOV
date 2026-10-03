@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m unittest -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax check
+        run: for f in webapp/static/*.js; do node --check "$f"; done
+      - name: Translation keys
+        run: node tests/js/i18n_keys.js webapp/static
+      - name: Language smoke tests
+        run: |
+          node tests/js/i18n_smoke.js webapp/static/app.js en-US
+          node tests/js/i18n_smoke.js webapp/static/app.js pl-PL
+      - name: Navigation and journey builder smoke test
+        run: node tests/js/navigation_smoke.js webapp/static/app.js

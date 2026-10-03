@@ -1,9 +1,10 @@
-anthropic
-beautifulsoup4
-fastapi
-httpx
-lxml
-psycopg2-binary
-python-multipart
-requests
-uvicorn[standard]
+# Pinned for reproducible deploys. Dependabot proposes updates weekly.
+anthropic==1.11.0
+beautifulsoup4==4.15.0
+fastapi==0.142.2
+httpx==0.28.1
+lxml==6.1.1
+psycopg2-binary==2.9.13
+python-multipart==0.0.32
+requests==2.34.2
+uvicorn[standard]==0.54.0

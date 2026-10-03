@@ -64,3 +64,12 @@ alter table guest_sessions enable row level security;
 alter table guest_conversations enable row level security;
 alter table user_journeys enable row level security;
 alter table in_app_alerts enable row level security;
+
+-- Daily assistant message counter (ASSISTANT_DAILY_LIMIT, default 50 per profile per UTC day).
+create table if not exists assistant_usage (
+  profile_id uuid not null references guest_profiles(id) on delete cascade,
+  day        date not null default current_date,
+  messages   integer not null default 0,
+  primary key (profile_id, day)
+);
+alter table assistant_usage enable row level security;

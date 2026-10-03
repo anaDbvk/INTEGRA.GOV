@@ -6,7 +6,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn webapp.app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    autoDeploy: true
+    autoDeployTrigger: checksPass
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
@@ -28,3 +28,7 @@ services:
         sync: false
       - key: RATE_LIMIT_PER_MINUTE
         value: 10
+      - key: ASSISTANT_DAILY_LIMIT
+        value: 50
+      - key: DB_POOL_MAX
+        value: 5

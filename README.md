@@ -220,9 +220,11 @@ disabled.
 
 Run `supabase/schema.sql` first if it has not already been applied, then run
 `supabase/app_tables.sql` in the Supabase SQL editor. The second script adds
-the private guest-profile, device, session, conversation, journey, and
-reminder tables. It enables row-level security without public policies; the
-server accesses these records using its private `DATABASE_URL`.
+the private guest-profile, device, session, conversation, journey, reminder,
+and daily assistant-usage tables. It enables row-level security without public policies; the
+server accesses these records using its private `DATABASE_URL`. Re-running the
+script is safe (`create table if not exists`), so run it again after updates
+to add new tables such as `assistant_usage`.
 
 The scraper loader creates searchable text chunks for scraped pages. The
 assistant now uses live web search instead (see above), so loading scraped
@@ -249,10 +251,34 @@ check path `/health`. Configure these service environment variables:
 | `WEB_SEARCH_MAX_USES` | Maximum web searches per chat turn (1â€“8, default `3`) |
 | `ADMIN_TOKEN` | Optional long random secret for the restricted knowledge-upload endpoint |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP interview/session request limit; defaults to `10` |
+| `ASSISTANT_DAILY_LIMIT` | Assistant messages per profile per UTC day, stored in Supabase `assistant_usage`; defaults to `50`, `0` disables |
+| `DB_POOL_MAX` | Maximum pooled Supabase connections per instance; defaults to `5` |
 
 Never put database or Anthropic credentials in the browser or repository.
-Set an Anthropic Console spend limit. The rate limiter is in-memory and resets
-when Render restarts the service.
+Set an Anthropic Console spend limit. The per-minute limiter is in-memory and
+resets when Render restarts the service; the daily limit is stored in Supabase.
+
+### Production hardening
+
+- **CI:** `.github/workflows/ci.yml` runs the Python tests and the JavaScript
+  syntax, translation and navigation smoke tests (`tests/js/`) on every push
+  and pull request. `render.yaml` uses `autoDeployTrigger: checksPass`, so
+  Render deploys only after CI passes. If the service was created manually,
+  set **Settings > Build & Deploy > Auto-Deploy** to *After CI Checks Pass*.
+- **Dependencies:** `requirements.txt` is pinned; Dependabot
+  (`.github/dependabot.yml`) proposes weekly updates that must pass CI.
+- **Database:** connections are reused from a small thread-safe pool with TCP
+  keepalives and a liveness check after 30 seconds idle.
+- **Security headers:** every response sends a Content-Security-Policy
+  (scripts only from this site, no framing), `X-Frame-Options`,
+  `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and HSTS
+  over HTTPS. API responses are `Cache-Control: no-store`.
+- **Your data (GDPR):** Profile > Privacy offers **Download my data**
+  (`GET /api/me/export`, JSON without phone or token hashes) and
+  **Delete my data** (`DELETE /api/me`, removes the profile and, through
+  `on delete cascade`, its devices, sessions, chats, journeys, alerts and usage).
+
+See [docs/PRODUCTION_ROADMAP.md](docs/PRODUCTION_ROADMAP.md) for the remaining steps.
 
 ### Guest profile and privacy limits
 
@@ -262,7 +288,8 @@ browser. The session expires after 15 days without activity, while the
 device-bound cookie can restore the profile on the same browser when the user
 enters the same number again. Phone-only recovery on another device, after
 clearing browser data, or after losing the cookie is not supported. Supabase
-data remains saved after logout. Add phone verification before treating this
+data remains saved after logout; users can download or permanently delete it
+in Profile > Privacy. Add phone verification before treating this
 as production authentication or storing sensitive personal information.
 
 Do not enter PESEL, document numbers, exact addresses, or other sensitive

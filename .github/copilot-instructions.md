@@ -33,3 +33,5 @@ the cited results. The scraper is kept for optional manual snapshots.
 - Add or update tests for every behavior change. Keep tests offline (mock
   Anthropic, GitHub, and the database).
 - Match the existing style: small functions, plain Python, no heavy frameworks.
+- New tables holding guest data must reference `guest_profiles(id) on delete cascade` and be added to `EXPORT_QUERIES` so Delete my data and Download my data stay complete. Never export phone, session or device hashes.
+- Keep `requirements.txt` pinned and keep the CI workflow (`.github/workflows/ci.yml`) green; Render deploys only after checks pass.

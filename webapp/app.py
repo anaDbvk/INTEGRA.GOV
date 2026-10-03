@@ -6,10 +6,11 @@ import math
 import os
 import re
 import secrets
+import threading
 import time
 import unicodedata
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -46,7 +47,28 @@ DEVICE_MAX_AGE = 5 * 365 * 24 * 60 * 60
 MAX_SAVED_HISTORY = 24
 GITHUB_API = "https://api.github.com"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+ASSISTANT_DAILY_LIMIT = int(os.getenv("ASSISTANT_DAILY_LIMIT", "50"))
 _rate_hits = {}
+MAX_TRACKED_IPS = 10_000
+DB_POOL_MAX = max(1, int(os.getenv("DB_POOL_MAX", "5")))
+DB_POOL_WAIT_SECONDS = 10
+DB_IDLE_CHECK_SECONDS = 30
+_db_idle = []
+_db_pool_lock = threading.Lock()
+_db_slots = threading.BoundedSemaphore(DB_POOL_MAX)
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), geolocation=(), payment=(), microphone=(self)",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
 DOMAIN_CACHE_SECONDS = 300
 _domain_cache = {}
 DOMAIN_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}")
@@ -139,6 +161,22 @@ app = FastAPI(
     openapi_url=None,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if secure_cookie(request):
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
 app.state.pages = []
 app.state.knowledge_source = ""
 app.state.knowledge_error = ""
@@ -221,11 +259,90 @@ def stem(token):
     return token.replace("ł", "l")[:6]
 
 
+class PooledConnection:
+    """psycopg2 connection proxy whose close() returns it to the pool."""
+
+    def __init__(self, connection, database_url):
+        self._connection = connection
+        self._database_url = database_url
+        self._returned = False
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+    def __enter__(self):
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._connection.__exit__(*exc_info)
+
+    def close(self):
+        if self._returned:
+            return
+        self._returned = True
+        connection = self._connection
+        try:
+            if not connection.closed:
+                if connection.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                    connection.rollback()
+                if connection.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                    with _db_pool_lock:
+                        _db_idle.append((connection, self._database_url, time.monotonic()))
+                    return
+            close_quietly(connection)
+        except psycopg2.Error:
+            close_quietly(connection)
+        finally:
+            _db_slots.release()
+
+
+def close_quietly(connection):
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+
+def take_idle_connection(database_url):
+    while True:
+        with _db_pool_lock:
+            if not _db_idle:
+                return None
+            connection, url, last_used = _db_idle.pop()
+        if connection.closed or url != database_url:
+            close_quietly(connection)
+            continue
+        if time.monotonic() - last_used > DB_IDLE_CHECK_SECONDS:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("select 1")
+                connection.rollback()
+            except psycopg2.Error:
+                close_quietly(connection)
+                continue
+        return connection
+
+
 def database_connection():
     database_url = os.getenv("DATABASE_URL", "")
     if not database_url:
         raise RuntimeError("DATABASE_URL is not configured.")
-    return psycopg2.connect(database_url)
+    if not _db_slots.acquire(timeout=DB_POOL_WAIT_SECONDS):
+        raise RuntimeError("All database connections are busy.")
+    try:
+        connection = take_idle_connection(database_url) or psycopg2.connect(
+            database_url,
+            connect_timeout=10,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
+        )
+    except Exception:
+        _db_slots.release()
+        raise
+    return PooledConnection(connection, database_url)
 
 
 def session_secret():
@@ -1185,9 +1302,15 @@ def search_domains():
 
 
 def load_source_domains():
-    with database_connection() as conn, conn.cursor() as cursor:
-        cursor.execute("select base_url from sources where assistant_enabled order by id")
-        return normalize_domains(row[0] for row in cursor.fetchall())
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("select base_url from sources where assistant_enabled order by id")
+            rows = cursor.fetchall()
+        connection.rollback()
+        return normalize_domains(row[0] for row in rows)
+    finally:
+        connection.close()
 
 
 async def official_domains():
@@ -1396,11 +1519,99 @@ def check_rate_limit(request: Request):
         request.client.host if request.client else "unknown"
     )
     now = time.monotonic()
+    if len(_rate_hits) > MAX_TRACKED_IPS:
+        for key in [key for key, value in _rate_hits.items() if not value or now - value[-1] >= 60]:
+            _rate_hits.pop(key, None)
     hits = _rate_hits.setdefault(ip, [])
     hits[:] = [hit for hit in hits if now - hit < 60]
     if len(hits) >= RATE_LIMIT_PER_MINUTE:
         raise HTTPException(status_code=429, detail="Too many requests. Please wait a minute.")
     hits.append(now)
+
+
+def count_assistant_message(profile_id, limit):
+    """Count one assistant message for today; False once the daily limit is reached."""
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """insert into assistant_usage (profile_id, day, messages)
+                   values (%s, current_date, 1)
+                   on conflict (profile_id, day) do update
+                     set messages = assistant_usage.messages + 1
+                     where assistant_usage.messages < %s
+                   returning messages""",
+                (profile_id, limit),
+            )
+            allowed = cursor.fetchone() is not None
+        connection.commit()
+        return allowed
+    except psycopg2.errors.UndefinedTable:
+        connection.rollback()
+        logger.warning("assistant_usage table is missing; daily limit is not enforced")
+        return True
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+EXPORT_QUERIES = (
+    ("profile", "select created_at from guest_profiles where id = %s"),
+    ("devices", "select created_at, last_used_at from guest_devices where profile_id = %s order by created_at"),
+    ("sessions", "select created_at, last_seen_at from guest_sessions where profile_id = %s order by created_at"),
+    ("conversation", "select history, updated_at from guest_conversations where profile_id = %s"),
+    (
+        "journeys",
+        """select id, title, goal, language, journey, completed_steps, created_at, updated_at
+           from user_journeys where profile_id = %s order by created_at""",
+    ),
+    (
+        "alerts",
+        """select id, journey_id, title, body, due_at, read_at, created_at
+           from in_app_alerts where profile_id = %s order by created_at""",
+    ),
+    ("assistant_usage", "select day, messages from assistant_usage where profile_id = %s order by day"),
+)
+
+
+def export_profile_data(profile_id):
+    """Everything stored about a guest profile, without secrets or hashes."""
+    data = {"exported_at": datetime.now(timezone.utc).isoformat(), "profile_id": profile_id}
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            for key, query in EXPORT_QUERIES:
+                cursor.execute("savepoint export_step")
+                try:
+                    cursor.execute(query, (profile_id,))
+                except psycopg2.errors.UndefinedTable:
+                    cursor.execute("rollback to savepoint export_step")
+                    data[key] = []
+                    continue
+                columns = [column[0] for column in cursor.description]
+                data[key] = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        connection.rollback()
+    finally:
+        connection.close()
+    data["profile"] = data["profile"][0] if data["profile"] else None
+    data["conversation"] = data["conversation"][0] if data["conversation"] else None
+    return data
+
+
+def delete_profile_data(profile_id):
+    """Delete the guest profile; related rows are removed by ON DELETE CASCADE."""
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("delete from guest_profiles where id = %s", (profile_id,))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 @app.get("/health")
@@ -1496,6 +1707,34 @@ async def logout_guest_session(
 async def get_saved_conversation(profile_id: str = Depends(require_guest)):
     history = await database_call(load_conversation, profile_id)
     return {"history": history}
+
+
+@app.get("/api/me/export")
+async def export_my_data(profile_id: str = Depends(require_guest)):
+    data = await database_call(export_profile_data, profile_id)
+    return Response(
+        content=json.dumps(data, ensure_ascii=False, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="smartin-my-data.json"'},
+    )
+
+
+@app.delete("/api/me")
+async def delete_my_data(
+    request: Request,
+    response: Response,
+    profile_id: str = Depends(require_guest),
+):
+    await database_call(delete_profile_data, profile_id)
+    for cookie in (SESSION_COOKIE, DEVICE_COOKIE):
+        response.delete_cookie(
+            cookie,
+            path="/",
+            httponly=True,
+            secure=secure_cookie(request),
+            samesite="lax",
+        )
+    return {"deleted": True}
 
 
 @app.put("/api/conversation")
@@ -1656,6 +1895,14 @@ async def interview(
             detail="Configure ANTHROPIC_API_KEY and ANTHROPIC_MODEL on the server.",
         )
     research_model = os.getenv("ANTHROPIC_FAST_MODEL", "") or model
+    if use_supabase and ASSISTANT_DAILY_LIMIT > 0:
+        allowed = await database_call(count_assistant_message, profile_id, ASSISTANT_DAILY_LIMIT)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="You have reached today's assistant message limit. Please try again tomorrow.",
+                headers={"X-Limit": "daily"},
+            )
     conversation_history = [turn.model_dump() for turn in request.history]
     conversation_history.append({"role": "user", "content": request.answer})
     if use_supabase:

@@ -147,7 +147,9 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, body, headers, credentials: "same-origin" });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.detail || t("err.request", { code: response.status }));
+    let message = payload.detail || t("err.request", { code: response.status });
+    if (response.status === 429) message = response.headers.get("X-Limit") === "daily" ? t("err.dailyLimit") : t("err.tooMany");
+    const error = new Error(message);
     error.status = response.status;
     if (response.status === 401 && path !== "/api/session") {
       state.authenticated = false;
@@ -466,7 +468,7 @@ async function sendChat(answer) {
   } catch (error) {
     if (error.status !== 401) {
       toast(error.message);
-      state.history.push({ role: "assistant", content: t("err.chat") });
+      state.history.push({ role: "assistant", content: error.status === 429 ? error.message : t("err.chat") });
     }
   }
   state.busy = false;
@@ -879,7 +881,9 @@ function renderProfile() {
       `<button class="row" type="button" data-go="journeys" style="width:100%;background:none;border:0;text-align:left"><span class="ico">${icon("flag", 18, "#1B2A5C")}</span><div class="l">${t("profile.open")}</div>${icon("chev", 16, "#5F6685")}</button>
       <p class="acc-note">${t("profile.noDocs")}</p>`)}
     ${acc("privacy", "shield", t("profile.privacy"), t("profile.privacySub"),
-      `<p class="acc-note">${t("profile.privacyBody")}</p>`)}
+      `<p class="acc-note">${t("profile.privacyBody")}</p>
+      <div class="data-actions"><a class="btn btn-outline" href="/api/me/export" download="smartin-my-data.json">${icon("doc", 18, "#1B2A5C")}${t("profile.export")}</a>
+      <button class="btn btn-danger" type="button" data-act="delete-data">${icon("trash", 18, "#B3322C")}${t("profile.deleteData")}</button></div>`)}
     ${acc("help", "help", t("profile.help"), t("profile.helpSub"),
       `<p class="acc-note">${t("profile.helpBody")}</p>`)}
     <div class="logout"><button class="btn" type="button" data-act="logout">${icon("logout", 20, "#B3322C")}${t("profile.logout")}</button><span>${t("brand")}</span></div></div>`);
@@ -1029,6 +1033,15 @@ document.addEventListener("click", async (event) => {
         state.current = null;
         toast(t("journey.deleted"));
         go("journeys", {}, { replace: true });
+      } catch (error) { toast(error.message); }
+      return;
+    case "delete-data":
+      if (!window.confirm(t("profile.deleteConfirm"))) return;
+      try {
+        await api("/api/me", { method: "DELETE" });
+        Object.assign(state, { authenticated: false, recoveryAvailable: false, loginStep: "start", history: [], journeys: [], alerts: [], current: null, loginError: "" });
+        toast(t("profile.deleted"));
+        go("login", {}, { replace: true });
       } catch (error) { toast(error.message); }
       return;
     case "logout":

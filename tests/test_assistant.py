@@ -12,7 +12,13 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from webapp.app import (
+    DB_POOL_MAX,
     MAX_PAGE_TEXT,
+    _db_idle,
+    count_assistant_message,
+    database_connection,
+    delete_profile_data,
+    export_profile_data,
     JourneyStepInput,
     _domain_cache,
     app,
@@ -659,6 +665,118 @@ class AssistantTests(unittest.TestCase):
                 json={"answer": "I need to report a death.", "language": "en"},
             )
         self.assertEqual(response.status_code, 502)
+
+
+class FakeInfo:
+    def __init__(self):
+        self.transaction_status = 0
+
+
+class FakeConnection:
+    def __init__(self):
+        self.closed = 0
+        self.info = FakeInfo()
+
+    def rollback(self):
+        self.info.transaction_status = 0
+
+    def close(self):
+        self.closed = 1
+
+    def cursor(self):
+        return MagicMock()
+
+
+class ProductionHardeningTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        app.dependency_overrides[require_guest] = lambda: "test-profile-id"
+        self.addCleanup(app.dependency_overrides.clear)
+        _db_idle.clear()
+        self.addCleanup(_db_idle.clear)
+
+    def test_security_headers_are_set(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+        self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
+        self.assertNotIn("Strict-Transport-Security", response.headers)
+        https = self.client.get("/health", headers={"x-forwarded-proto": "https"})
+        self.assertIn("max-age=", https.headers["Strict-Transport-Security"])
+        api = self.client.get("/api/session")
+        self.assertEqual(api.headers["Cache-Control"], "no-store")
+
+    def test_pool_reuses_connections_and_releases_slots(self):
+        created = []
+
+        def connect(*args, **kwargs):
+            created.append(FakeConnection())
+            return created[-1]
+
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}), \
+                patch("webapp.app.psycopg2.connect", side_effect=connect):
+            for _ in range(DB_POOL_MAX * 3):
+                connection = database_connection()
+                connection.close()
+                connection.close()
+            self.assertEqual(len(created), 1)
+            held = [database_connection() for _ in range(DB_POOL_MAX)]
+            self.assertEqual(len(created), DB_POOL_MAX)
+            held[0].closed = 1
+            held[0]._connection.closed = 1
+            for connection in held:
+                connection.close()
+            self.assertEqual(len(_db_idle), DB_POOL_MAX - 1)
+
+    def test_failed_connect_releases_slot(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://example"}), \
+                patch("webapp.app.psycopg2.connect", side_effect=RuntimeError("down")):
+            for _ in range(DB_POOL_MAX + 1):
+                with self.assertRaisesRegex(RuntimeError, "down"):
+                    database_connection()
+
+    def test_daily_assistant_limit_returns_429(self):
+        env = {"DATABASE_URL": "postgresql://example", "ANTHROPIC_API_KEY": "k", "ANTHROPIC_MODEL": "m"}
+        with patch.dict(os.environ, env), \
+                patch("webapp.app.database_call", new=AsyncMock(return_value=False)) as database_call, \
+                patch("webapp.app.anthropic.AsyncAnthropic") as client:
+            response = self.client.post("/api/interview", json={"answer": "Hello", "language": "en"})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers["X-Limit"], "daily")
+        self.assertIs(database_call.await_args.args[0], count_assistant_message)
+        client.assert_not_called()
+
+    def test_export_returns_json_attachment(self):
+        data = {"profile_id": "test-profile-id", "journeys": [{"title": "Ślub"}]}
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=data)) as database_call:
+            response = self.client.get("/api/me/export")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertEqual(response.json(), data)
+        database_call.assert_awaited_once_with(export_profile_data, "test-profile-id")
+
+    def test_delete_my_data_removes_profile_and_cookies(self):
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=None)) as database_call:
+            response = self.client.delete("/api/me")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"deleted": True})
+        database_call.assert_awaited_once_with(delete_profile_data, "test-profile-id")
+        cookies = response.headers.get_list("set-cookie")
+        self.assertTrue(any(c.startswith("smartin_session=") for c in cookies))
+        self.assertTrue(any(c.startswith("smartin_device=") for c in cookies))
+
+    def test_export_skips_secrets(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.description = [("created_at",)]
+        cursor.fetchall.return_value = [("2026-10-01",)]
+        with patch("webapp.app.database_connection", return_value=connection):
+            data = export_profile_data("test-profile-id")
+        executed = " ".join(call.args[0] for call in cursor.execute.call_args_list)
+        self.assertNotIn("hash", executed)
+        self.assertEqual(data["profile"], {"created_at": "2026-10-01"})
+        connection.close.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()
