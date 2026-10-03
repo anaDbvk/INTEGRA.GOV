@@ -15,6 +15,8 @@ create table if not exists sources (
   refresh_days  int  not null default 7,
   license_notes text
 );
+alter table sources
+  add column if not exists jurisdiction text not null default 'national';
 
 -- ------------------------------------------------------------- raw_pages
 create table if not exists raw_pages (
@@ -49,6 +51,15 @@ create table if not exists documents (
   valid_to      date,
   fetched_at    timestamptz not null
 );
+alter table documents
+  add column if not exists category text,
+  add column if not exists page_type text,
+  add column if not exists jurisdiction text not null default 'national',
+  add column if not exists language text not null default 'pl',
+  add column if not exists event_dates jsonb not null default '[]'::jsonb,
+  add column if not exists valid_from date,
+  add column if not exists valid_to date,
+  add column if not exists fetched_at timestamptz;
 create index if not exists documents_jurisdiction_idx on documents (jurisdiction);
 create index if not exists documents_category_idx on documents (category);
 create index if not exists documents_source_idx on documents (source_id);
