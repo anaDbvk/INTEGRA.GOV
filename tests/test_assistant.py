@@ -231,6 +231,18 @@ class AssistantTests(unittest.TestCase):
         evidence, _ = format_evidence([page], "required documents")
         self.assertIn("Required documents include proof of address.", evidence)
 
+    def test_polish_inflection_and_missing_diacritics_still_match(self):
+        page = validate_page(
+            jsonl_page(
+                title="Zawarcie małżeństwa",
+                text="Zawarcie małżeństwa odbywa się w urzędzie stanu cywilnego.",
+                url="https://www.gov.pl/web/gov/slub",
+            ),
+            1,
+        )
+        self.assertEqual(len(retrieve_pages([page], "malzenstwo")), 1)
+        self.assertEqual(len(retrieve_pages([page], "ślub w urzędzie")), 1)
+
     def test_interview_returns_source_cited_journey_blocks(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]
 
