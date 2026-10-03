@@ -14,8 +14,9 @@ the cited results. The scraper is kept for optional manual snapshots.
 
 ## Rules
 - Never weaken scraper politeness (robots.txt, same-site check, delay) or PII redaction.
-- Web search must stay restricted to the approved official domains
-  (`WEB_SEARCH_DOMAINS`), and the backend must keep discarding results outside them.
+- Web search must stay restricted to the approved official domains (enabled rows
+  of the Supabase `sources` table, falling back to `WEB_SEARCH_DOMAINS`), and the
+  backend must keep discarding results outside them.
 - Anything shown to users as an official fact must come from a supplied source
   and carry a source ID. Do not add behavior that lets the model answer
   procedural, fee, deadline, or event questions from its own knowledge.

@@ -171,10 +171,19 @@ The assistant no longer reads scraped pages from Supabase. For each chat turn
 the backend makes two Anthropic calls:
 
 1. **Research**: Claude uses Anthropic's web search tool
-   (`web_search_20250305`), restricted to `WEB_SEARCH_DOMAINS`, to find and
+   (`web_search_20250305`), restricted to the approved official domains, to find and
    summarise the relevant official pages with citations. Results from other
    domains or non-HTTPS URLs are discarded by the backend. If the user's goal
    is still unclear, it skips searching.
+
+   The approved domains come from the Supabase `sources` table: every row with
+   `assistant_enabled = true` contributes the host of its `base_url` (a leading
+   `www.` is dropped, and subdomains of another listed domain are merged, because
+   searches cover subdomains). The list is cached for 5 minutes. If
+   `DATABASE_URL` is not set, the table is unavailable, or no rows are enabled,
+   `WEB_SEARCH_DOMAINS` (or the built-in defaults) is used instead. To add a
+   site, insert a row into `sources`; to stop searching one, set
+   `assistant_enabled = false`.
 2. **Interview or journey**: the cited research is passed to the
    `return_journey_step` tool call, which either asks one follow-up question or
    returns journey steps. Every step must cite one of the researched sources;
@@ -217,7 +226,7 @@ check path `/health`. Configure these service environment variables:
 | `ANTHROPIC_API_KEY` | Server-side Anthropic API key |
 | `ANTHROPIC_MODEL` | Model ID enabled for the Anthropic account |
 | `ANTHROPIC_FAST_MODEL` | Optional less expensive model for the web-research step; defaults to `ANTHROPIC_MODEL` |
-| `WEB_SEARCH_DOMAINS` | Comma-separated official domains the assistant may search (subdomains included); defaults to `gov.pl,migrant.info.pl,udsc.gov.pl,nfz.gov.pl,zus.pl,podatki.gov.pl,biznes.gov.pl` |
+| `WEB_SEARCH_DOMAINS` | Fallback comma-separated official domains when the Supabase `sources` table cannot be used (subdomains included); defaults to `gov.pl,migrant.info.pl,udsc.gov.pl,nfz.gov.pl,zus.pl,podatki.gov.pl,biznes.gov.pl` |
 | `WEB_SEARCH_MAX_USES` | Maximum web searches per chat turn (1–8, default `3`) |
 | `ADMIN_TOKEN` | Optional long random secret for the restricted knowledge-upload endpoint |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP interview/session request limit; defaults to `10` |

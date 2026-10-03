@@ -47,6 +47,9 @@ MAX_SAVED_HISTORY = 24
 GITHUB_API = "https://api.github.com"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 _rate_hits = {}
+DOMAIN_CACHE_SECONDS = 300
+_domain_cache = {}
+DOMAIN_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}")
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
@@ -1046,17 +1049,51 @@ def build_conversation(question, history):
     return list(reversed(bounded)) + [{"role": "user", "content": question}]
 
 
+def normalize_domains(items):
+    """Turn URLs or hosts into a short, deduplicated list of searchable domains."""
+    hosts = []
+    for item in items:
+        value = str(item or "").strip().lower()
+        if not value:
+            continue
+        host = urlparse(value if "://" in value else f"https://{value}").hostname or ""
+        host = host.removeprefix("www.")
+        if DOMAIN_RE.fullmatch(host) and host not in hosts:
+            hosts.append(host)
+    # allowed_domains already covers subdomains, so drop hosts covered by a parent.
+    return [h for h in hosts if not any(h != p and h.endswith("." + p) for p in hosts)]
+
+
 def search_domains():
     configured = os.getenv("WEB_SEARCH_DOMAINS", "")
-    domains = [
-        item.strip().lower().removeprefix("https://").removeprefix("http://").strip("/")
-        for item in configured.split(",")
-    ]
-    domains = [item for item in domains if item]
-    return domains or list(DEFAULT_SEARCH_DOMAINS)
+    return normalize_domains(configured.split(",")) or list(DEFAULT_SEARCH_DOMAINS)
 
 
-def web_search_tool():
+def load_source_domains():
+    with database_connection() as conn, conn.cursor() as cursor:
+        cursor.execute("select base_url from sources where assistant_enabled order by id")
+        return normalize_domains(row[0] for row in cursor.fetchall())
+
+
+async def official_domains():
+    """Domains from the Supabase sources table, cached; env/defaults as fallback."""
+    if not os.getenv("DATABASE_URL"):
+        return search_domains()
+    now = time.monotonic()
+    cached = _domain_cache.get("value")
+    if cached and now - _domain_cache.get("at", 0) < DOMAIN_CACHE_SECONDS:
+        return cached
+    try:
+        domains = await run_in_threadpool(load_source_domains)
+    except Exception:
+        logger.exception("Could not load sources from Supabase; using configured domains")
+        domains = []
+    domains = domains or search_domains()
+    _domain_cache.update(value=domains, at=now)
+    return domains
+
+
+def web_search_tool(domains=None):
     try:
         max_uses = int(os.getenv("WEB_SEARCH_MAX_USES", "3"))
     except ValueError:
@@ -1065,7 +1102,7 @@ def web_search_tool():
         "type": "web_search_20250305",
         "name": "web_search",
         "max_uses": max(1, min(max_uses, 8)),
-        "allowed_domains": search_domains(),
+        "allowed_domains": domains or search_domains(),
         "user_location": {
             "type": "approximate",
             "country": "PL",
@@ -1176,8 +1213,8 @@ def collect_research(blocks, domains):
 
 async def research_official_sources(client, model, messages, language):
     """Search approved official websites and return cited evidence plus sources."""
-    domains = search_domains()
-    tool = web_search_tool()
+    domains = await official_domains()
+    tool = web_search_tool(domains)
     research_messages = [dict(message) for message in messages]
     research_messages[-1] = {
         "role": "user",

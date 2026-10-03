@@ -19,6 +19,9 @@ create table if not exists sources (
 );
 alter table sources
   add column if not exists jurisdiction text not null default 'national';
+-- The assistant searches the sites of enabled rows live (subdomains included).
+alter table sources
+  add column if not exists assistant_enabled boolean not null default true;
 
 -- ------------------------------------------------------------- raw_pages
 create table if not exists raw_pages (

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -12,10 +13,13 @@ from fastapi.testclient import TestClient
 
 from webapp.app import (
     MAX_PAGE_TEXT,
+    _domain_cache,
     app,
     format_evidence,
     github_get_json,
     load_github_dataset,
+    normalize_domains,
+    official_domains,
     parse_jsonl,
     require_guest,
     retrieve_pages,
@@ -536,6 +540,30 @@ class AssistantTests(unittest.TestCase):
             tool = web_search_tool()
         self.assertEqual(tool["allowed_domains"], ["gov.pl", "zus.pl"])
         self.assertEqual(tool["max_uses"], 8)
+
+    def test_source_urls_collapse_to_parent_domains(self):
+        domains = normalize_domains([
+            "https://www.gov.pl", "https://udsc.gov.pl", "https://mos.cudzoziemcy.gov.pl",
+            "https://www.krakow.pl", "https://dzielnica3.krakow.pl", "https://um.warszawa.pl",
+            "https://bemowo.um.warszawa.pl", "https://migrant.info.pl/", "not a domain", "",
+        ])
+        self.assertEqual(domains, ["gov.pl", "krakow.pl", "um.warszawa.pl", "migrant.info.pl"])
+
+    def test_research_uses_domains_from_supabase_sources(self):
+        _domain_cache.clear()
+        self.addCleanup(_domain_cache.clear)
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"}), \
+                patch("webapp.app.load_source_domains", return_value=["gov.pl", "krakow.pl"]) as loader:
+            self.assertEqual(asyncio.run(official_domains()), ["gov.pl", "krakow.pl"])
+            self.assertEqual(asyncio.run(official_domains()), ["gov.pl", "krakow.pl"])
+        self.assertEqual(loader.call_count, 1)
+
+    def test_supabase_failure_falls_back_to_configured_domains(self):
+        _domain_cache.clear()
+        self.addCleanup(_domain_cache.clear)
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://test", "WEB_SEARCH_DOMAINS": "zus.pl"}), \
+                patch("webapp.app.load_source_domains", side_effect=RuntimeError("down")):
+            self.assertEqual(asyncio.run(official_domains()), ["zus.pl"])
 
     def test_interview_rejects_uncited_journey(self):
         FakeClient, _ = fake_client(
