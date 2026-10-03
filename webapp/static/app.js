@@ -24,6 +24,8 @@ const state = {
   showReminder: false,
   reminderJourney: "",
   busy: false,
+  builder: null,
+  newMenu: false,
 };
 
 const LANG_KEY = "smartin_lang";
@@ -116,6 +118,8 @@ const ICONS = {
   info: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 11v5M12 8v.5",
   help: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17v.5",
   idcard: "M3 6h18v12H3zM7 10h4M7 14h6M15 10h2v4h-2z",
+  up: "M6 15l6-6 6 6",
+  edit: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
 };
 
 function icon(name, size = 22, color = "currentColor", width = 1.8) {
@@ -219,7 +223,8 @@ function pill(status) {
 function unreadCount() { return state.alerts.filter((a) => !a.is_read).length; }
 
 /* ---------- chrome ---------- */
-const NAV_PAGES = new Set(["journeys", "journey", "explore", "alerts", "profile"]);
+const NAV_PAGES = new Set(["home", "journeys", "journey", "explore", "alerts", "profile"]);
+const ROOT_PAGES = new Set(["home", "journeys", "explore", "alerts", "profile"]);
 function renderNav() {
   const show = state.authenticated && NAV_PAGES.has(state.page);
   $nav.classList.toggle("hidden", !show);
@@ -230,7 +235,7 @@ function renderNav() {
     <span class="pillbox">${icon(ic, 22)}${key === "alerts" && badge ? `<span class="badge">${badge > 9 ? "9+" : badge}</span>` : ""}</span>${label}</button>`;
   $nav.className = "nav";
   $nav.innerHTML = `${item("journeys", t("nav.journeys"), "flag")}${item("explore", t("nav.explore"), "compass")}
-    <button type="button" class="fab" data-go="home" aria-label="${t("nav.ask")}">${icon("sparkle", 26, "#fff")}</button>
+    <button type="button" class="fab ${active === "home" ? "on" : ""}" data-go="home" aria-label="${t("nav.ask")}" ${active === "home" ? 'aria-current="page"' : ""}>${icon("sparkle", 26, "#fff")}</button>
     ${item("alerts", t("nav.alerts"), "bell")}${item("profile", t("nav.profile"), "user")}`;
 }
 
@@ -242,12 +247,63 @@ function view(html, { locked = false } = {}) {
 }
 
 function backRow(target, title = "") {
-  return `<div class="back-row"><button class="icon-btn" type="button" data-go="${target}" aria-label="${t("back")}">${icon("back")}</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
+  return `<div class="back-row"><button class="icon-btn" type="button" data-back="${target}" aria-label="${t("back")}">${icon("back")}</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
 }
 
-function go(page, extra = {}) {
-  Object.assign(state, extra, { page });
+/* ---------- history: phone/browser Back button ---------- */
+const TRANSIENT = new Set(["creating", "ready", "complete"]);
+function historyEntry() {
+  return { page: state.page, stepIndex: state.stepIndex, journeyId: state.current?.id || null };
+}
+function syncHistory(replace = false) {
+  try {
+    const cur = history.state;
+    const entry = historyEntry();
+    if (cur && cur.page === entry.page && cur.stepIndex === entry.stepIndex && cur.journeyId === entry.journeyId) return;
+    const rootSwitch = cur && ROOT_PAGES.has(cur.page) && ROOT_PAGES.has(entry.page) && cur.page !== "home";
+    if (replace || !cur || rootSwitch || TRANSIENT.has(cur.page) || cur.page === "login") {
+      history.replaceState({ ...entry, prev: cur?.prev ?? null }, "");
+    } else {
+      history.pushState({ ...entry, prev: cur.page }, "");
+    }
+  } catch { /* history unavailable */ }
+}
+function goBack(target) {
+  if (history.state?.prev === target) return history.back();
+  return go(target, {}, { replace: true });
+}
+window.addEventListener("popstate", async (event) => {
+  if (!state.authenticated) { state.page = "login"; state.loginStep = "start"; return render(); }
+  const entry = event.state || { page: "home" };
+  let page = entry.page;
+  if (page === "login" || TRANSIENT.has(page)) page = "journeys";
+  if (page === "builder" && !state.builder) page = "journeys";
+  if (entry.journeyId && state.current?.id !== entry.journeyId) {
+    state.current = state.journeys.find((j) => j.id === entry.journeyId) || { id: entry.journeyId };
+  }
+  if (page === "step" && !blocksOf(state.current).length) page = "journey";
+  if (page === "journeys") await refreshJourneys();
+  state.stepIndex = entry.stepIndex ?? 0;
+  state.page = page;
   render();
+});
+
+function go(page, extra = {}, { replace = false } = {}) {
+  Object.assign(state, extra, { page });
+  if (state.authenticated) syncHistory(replace);
+  render();
+}
+
+function parseDay(raw) {
+  if (!raw) return { ok: true, iso: null };
+  const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  const d = m && new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  if (!m || d.getUTCDate() !== +m[1] || d.getUTCMonth() !== +m[2] - 1) return { ok: false, iso: null };
+  return { ok: true, iso: d.toISOString().slice(0, 10) };
+}
+function isoToDay(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
 }
 
 /* ---------- screens ---------- */
@@ -328,6 +384,8 @@ function renderHome() {
         <span class="go">${t("home.start")} ${icon("arrow", 18)}</span></button>
       <button class="card-white" type="button" data-go="explore"><span class="ico">${icon("compass", 24, "#1B2A5C")}</span>
         <span><div class="t">${t("home.browseT")}</div><div class="d">${t("home.browseD")}</div></span></button>
+      <button class="card-white" type="button" data-act="new-own"><span class="ico">${icon("edit", 24, "#1B2A5C")}</span>
+        <span><div class="t">${t("home.ownT")}</div><div class="d">${t("home.ownD")}</div></span></button>
     </div>
     <div class="topics"><div class="eyebrow">${t("home.popular")}</div><div class="chips">${topics.map((k) => `<button class="chip" type="button" data-topic="${esc(t(`topic.${k}.q`))}">${esc(t(`topic.${k}`))}</button>`).join("")}</div></div>
     <div class="trust">${icon("shield", 20, "#3F5E16")}<span>${t("home.trust")}</span></div>
@@ -353,7 +411,7 @@ function renderChat() {
     bubbles.push(`<button class="bubble bot create" style="max-width:286px;align-self:flex-start;background:var(--blue);color:#fff;border:0;display:flex;justify-content:center;gap:8px;align-items:center;cursor:pointer;font-weight:600" type="button" data-act="create">${icon("sparkle", 18, "#fff")}${t("chat.create")}</button>`);
   }
   view(`<div class="page fill">
-    <div class="chat-head"><button class="back" type="button" data-go="home" aria-label="${t("back")}">${icon("back")}</button>
+    <div class="chat-head"><button class="back" type="button" data-back="home" aria-label="${t("back")}">${icon("back")}</button>
       <span class="avatar">${icon("sparkle", 20, "#fff")}</span>
       <div class="who"><div class="name">${t("chat.name")}</div><div class="status"><i></i>${t("chat.status")}</div></div>
       ${state.history.length ? `<button class="back" type="button" data-act="new-chat" aria-label="${t("chat.newChat")}">${icon("plus")}</button>` : ""}</div>
@@ -472,23 +530,19 @@ function renderReady() {
   document.getElementById("readyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = document.getElementById("jDate").value.trim();
-    let target = null;
-    if (raw) {
-      const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
-      const d = m && new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
-      if (!m || d.getUTCDate() !== +m[1] || d.getUTCMonth() !== +m[2] - 1) {
-        document.getElementById("jDateHint").textContent = t("ready.dateErr");
-        return;
-      }
-      target = d.toISOString().slice(0, 10);
+    const parsed = parseDay(raw);
+    if (!parsed.ok) {
+      document.getElementById("jDateHint").textContent = t("ready.dateErr");
+      return;
     }
+    const target = parsed.iso;
     const button = document.querySelector(".ready-foot button");
     button.disabled = true;
     try {
       await api(`/api/journeys/${record.id}`, { method: "PATCH", body: { title: document.getElementById("jName").value.trim() || record.title, target_date: target, focus: state.focus } });
       state.journeys = (await api("/api/journeys")).journeys;
       state.current = state.journeys.find((j) => j.id === record.id) || record;
-      go("journey");
+      go("journey", {}, { replace: true });
     } catch (error) {
       toast(error.message);
       button.disabled = false;
@@ -527,7 +581,8 @@ async function renderJourney() {
           <span class="ico">${icon(status === "done" ? "check" : "doc", 22, status === "done" ? "#52771F" : "#2A5BD7", status === "done" ? 3 : 1.8)}</span>
           <span class="m"><span class="n">${esc(block.title)}</span><span class="s">${pill(status)}${needs ? `<small>${esc(needs)}</small>` : ""}</span></span>${icon("chev", 18, "#5F6685")}</button>`;
       }).join("")}</div>
-      <div class="j-actions"><button class="btn btn-outline" type="button" data-act="remind">${icon("bell", 18)}${t("journey.remind")}</button>
+      <div class="j-actions"><button class="btn btn-outline" type="button" data-act="edit-steps">${icon("edit", 18)}${t("journey.edit")}</button>
+      <button class="btn btn-outline" type="button" data-act="remind">${icon("bell", 18)}${t("journey.remind")}</button>
       <button class="btn btn-danger" type="button" data-act="delete-journey">${icon("trash", 18, "#B3322C")}${t("journey.delete")}</button></div></div>`);
   } catch (error) {
     if (state.page === "journey") view(`<div class="page">${backRow("journeys")}<div class="empty"><p>${esc(error.message)}</p></div></div>`);
@@ -553,6 +608,7 @@ function renderStep() {
     ${block.where ? `<div class="place"><div class="t"><span class="ico">${icon("pin", 22, "#2A5BD7")}</span><div><b>${esc(block.where)}</b></div></div>
       <div class="acts"><a class="tint" href="${maps}" target="_blank" rel="noopener noreferrer">${icon("map", 18, "#2A5BD7")}${t("step.directions")}</a></div></div>` : ""}
     ${links.length ? `<div class="source-line">${icon("shield", 14, "#52771F")}${t("step.source")}: ${links.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>`).join(" · ")}</div>` : ""}
+    ${block.custom ? `<div class="source-line">${icon("user", 14, "#5F6685")}${t("step.own")}</div>` : ""}
     <div style="height:24px"></div>
     <div class="bottom-bar">${status === "done"
       ? `<button class="btn btn-outline" type="button" data-act="toggle-step">${t("step.markUndone")}</button>`
@@ -572,7 +628,7 @@ async function toggleStep() {
     state.journeys = state.journeys.map((j) => (j.id === record.id ? { ...j, completed_steps: list } : j));
     if (list.length === blocksOf(record).length && list.length) return go("complete");
     toast(done.has(state.stepIndex) ? t("step.doneToast") : t("step.reopened"));
-    go("journey");
+    goBack("journey");
   } catch (error) {
     toast(error.message);
     if (button) button.disabled = false;
@@ -593,7 +649,8 @@ function renderJourneys() {
     upnext = `<button class="upnext" type="button" data-journey="${next.id}"><div class="e">${icon("clock", 14, "#C9D6FB")}${t("journeys.upNext")}${due ? ` · ${due}` : ""}</div>
       <div class="t">${esc(step?.title || next.title)}</div><div class="d">${esc(next.title)}</div><div class="o">${t("journeys.continue")} ${icon("arrow", 18, "#fff")}</div></button>`;
   }
-  view(`<div class="page"><div class="screen-title"><h1>${t("journeys.title")}</h1><button class="icon-btn" type="button" data-go="home" aria-label="${t("journeys.new")}">${icon("plus")}</button></div>
+  view(`<div class="page"><div class="screen-title"><h1>${t("journeys.title")}</h1><button class="icon-btn" type="button" data-act="new-menu" aria-label="${t("journeys.new")}" aria-expanded="${state.newMenu}">${icon(state.newMenu ? "close" : "plus")}</button></div>
+    ${state.newMenu ? newJourneyChoices() : ""}
     ${upnext}
     <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="active" aria-selected="${state.tab === "active"}">${t("journeys.active", { count: active.length })}</button><button type="button" role="tab" data-tab="done" aria-selected="${state.tab === "done"}">${t("journeys.completed", { count: finished.length })}</button></div>
     <div class="jlist">${list.length ? list.map((j) => {
@@ -604,7 +661,104 @@ function renderJourneys() {
       const status = pct >= 100 ? "done" : done ? "progress" : "todo";
       return `<button class="jcard" type="button" data-journey="${j.id}"><span class="ringp" style="background:conic-gradient(${pct >= 100 ? "#52771F" : "#2A5BD7"} ${pct}%,#ECE7DE 0)"><div>${pct}%</div></span>
         <span class="m"><span class="n">${esc(j.title)}</span><span class="s">${pill(status)}<small>${t("journeys.xOfY", { done, total: blocks.length })}${target ? ` · ${esc(t("journeys.by", { date: formatDay(target) }))}` : ""}</small></span></span>${icon("chev", 18, "#5F6685")}</button>`;
-    }).join("") : `<div class="empty" style="margin:10px 0 0"><p>${state.tab === "active" ? t("journeys.emptyActive") : t("journeys.emptyDone")}</p>${state.tab === "active" ? `<button class="btn btn-primary" type="button" data-go="home">${t("journeys.start")}</button>` : ""}</div>`}</div></div>`);
+    }).join("") : `<div class="empty" style="margin:10px 0 0"><p>${state.tab === "active" ? t("journeys.emptyActive") : t("journeys.emptyDone")}</p>${state.tab === "active" ? `<button class="btn btn-primary" type="button" data-act="new-chat">${t("journeys.withAssistant")}</button><button class="btn btn-outline" type="button" data-act="new-own">${t("journeys.own")}</button>` : ""}</div>`}</div></div>`);
+}
+
+function newJourneyChoices() {
+  return `<div class="new-choices"><button class="card-white" type="button" data-act="new-chat"><span class="ico" style="background:var(--blue-t)">${icon("sparkle", 22, "#2A5BD7")}</span><span><div class="t">${t("journeys.withAssistant")}</div><div class="d">${t("home.designD")}</div></span></button>
+    <button class="card-white" type="button" data-act="new-own"><span class="ico">${icon("edit", 22, "#1B2A5C")}</span><span><div class="t">${t("journeys.own")}</div><div class="d">${t("home.ownD")}</div></span></button></div>`;
+}
+
+/* ---------- own journeys: create and edit steps ---------- */
+const MAX_STEPS = 20;
+function blankStep() { return { from_index: null, title: "", action: "", deadline: "" }; }
+function openBuilder(record) {
+  state.builder = record
+    ? { mode: "edit", id: record.id, title: record.title, date: "", steps: blocksOf(record).map((b, i) => ({ from_index: i, title: b.title || "", action: b.action || "", deadline: b.deadline || "", official: !b.custom })) }
+    : { mode: "new", title: "", date: "", steps: [blankStep()] };
+  state.newMenu = false;
+  go("builder");
+  if (!record) document.getElementById("bName")?.focus();
+}
+function readBuilder() {
+  const b = state.builder;
+  if (!b) return;
+  const name = document.getElementById("bName");
+  if (name) b.title = name.value;
+  const date = document.getElementById("bDate");
+  if (date) b.date = date.value;
+  b.steps.forEach((s, i) => {
+    if (s.official) return;
+    for (const f of ["title", "action", "deadline"]) {
+      const el = document.getElementById(`b-${f}-${i}`);
+      if (el) s[f] = el.value;
+    }
+  });
+}
+function renderBuilder() {
+  const b = state.builder;
+  if (!b) return go("journeys", {}, { replace: true });
+  const n = b.steps.length;
+  const tools = (i) => `<div class="b-tools">
+    <button class="icon-btn sm" type="button" data-bmove="${i}:-1" ${i === 0 ? "disabled" : ""} aria-label="${t("builder.up")}">${icon("up", 18)}</button>
+    <button class="icon-btn sm" type="button" data-bmove="${i}:1" ${i === n - 1 ? "disabled" : ""} aria-label="${t("builder.down")}">${icon("chev", 18)}</button>
+    <button class="icon-btn sm" type="button" data-bdel="${i}" ${n === 1 ? "disabled" : ""} aria-label="${t("builder.remove")}">${icon("trash", 18, "#B3322C")}</button></div>`;
+  const card = (s, i) => s.official
+    ? `<div class="b-step official"><div class="b-head"><span class="b-num">${i + 1}</span><b class="b-title">${esc(s.title)}</b>${tools(i)}</div>
+        <div class="b-badge">${icon("shield", 14, "#52771F")}${t("builder.official")}</div></div>`
+    : `<div class="b-step"><div class="b-head"><span class="b-num">${i + 1}</span>${tools(i)}</div>
+        <input class="input" id="b-title-${i}" maxlength="120" placeholder="${t("builder.stepPh")}" aria-label="${t("builder.stepPh")}" value="${esc(s.title)}">
+        <textarea class="input" id="b-action-${i}" maxlength="1000" placeholder="${t("builder.notePh")}" aria-label="${t("builder.notePh")}">${esc(s.action)}</textarea>
+        <input class="input" id="b-deadline-${i}" maxlength="80" placeholder="${t("builder.deadlinePh")}" aria-label="${t("builder.deadlinePh")}" value="${esc(s.deadline)}"></div>`;
+  view(`<div class="page">${backRow(b.mode === "edit" ? "journey" : "journeys", b.mode === "edit" ? t("builder.editTitle") : t("builder.newTitle"))}
+    <form class="builder" id="builderForm" novalidate>
+      ${b.mode === "new" ? `<label class="field"><span>${t("builder.name")}</span><input class="input" id="bName" maxlength="120" placeholder="${t("builder.namePh")}" value="${esc(b.title)}"></label>
+      <label class="field"><span>${t("ready.date")}</span><div class="date-wrap"><input class="input" id="bDate" inputmode="numeric" maxlength="10" placeholder="${t("ready.datePh")}" autocomplete="off" value="${esc(b.date)}">${icon("calendar", 20, "#5F6685")}</div><div class="hint" id="bDateHint">${t("ready.dateHint")}</div></label>` : ""}
+      <div class="eyebrow">${t("builder.steps")}</div>
+      ${b.steps.map(card).join("")}
+      <button class="btn btn-outline" type="button" data-act="builder-add" ${n >= MAX_STEPS ? "disabled" : ""}>${icon("plus", 18)}${t("builder.add")}</button>
+      <p class="acc-note">${t("builder.hint")}</p>
+      <p class="error" id="builderError" role="alert"></p>
+    </form>
+    <div class="bottom-bar"><button class="btn btn-primary" type="submit" form="builderForm">${b.mode === "edit" ? t("builder.saveSteps") : t("builder.save")}</button></div></div>`);
+  document.getElementById("builderForm").addEventListener("submit", saveBuilder);
+}
+async function saveBuilder(event) {
+  event.preventDefault();
+  readBuilder();
+  const b = state.builder;
+  const error = document.getElementById("builderError");
+  const kept = b.steps.filter((s) => s.official || s.title.trim() || s.action.trim() || s.deadline.trim());
+  const steps = kept.map((s) => ({ from_index: s.from_index, title: s.title.trim(), action: s.action.trim(), deadline: s.deadline.trim() }));
+  if (!steps.length) { error.textContent = t("builder.needStep"); return; }
+  if (kept.some((s) => !s.official && !s.title.trim())) { error.textContent = t("builder.needTitle"); return; }
+  let body;
+  if (b.mode === "new") {
+    if (!b.title.trim()) { error.textContent = t("builder.needName"); document.getElementById("bName")?.focus(); return; }
+    const parsed = parseDay(b.date.trim());
+    if (!parsed.ok) { document.getElementById("bDateHint").textContent = t("ready.dateErr"); return; }
+    body = { title: b.title.trim(), target_date: parsed.iso, language: state.language, steps };
+  }
+  const button = document.querySelector(".bottom-bar button");
+  button.disabled = true;
+  try {
+    if (b.mode === "new") {
+      state.current = await api("/api/journeys", { method: "POST", body });
+    } else {
+      const result = await api(`/api/journeys/${b.id}/steps`, { method: "PUT", body: { steps } });
+      const record = state.current?.id === b.id ? state.current : { id: b.id };
+      record.completed_steps = result.completed_steps;
+      record.journey = { ...(record.journey || {}), journey_blocks: result.journey_blocks };
+      state.current = record;
+    }
+    state.journeys = (await api("/api/journeys")).journeys;
+    state.builder = null;
+    toast(t("builder.saved"));
+    go("journey", {}, { replace: true });
+  } catch (problem) {
+    error.textContent = problem.message;
+    button.disabled = false;
+  }
 }
 
 function renderComplete() {
@@ -751,6 +905,7 @@ function render() {
     case "explore": return renderExplore();
     case "alerts": return renderAlerts();
     case "profile": return renderProfile();
+    case "builder": return renderBuilder();
     default: state.page = "home"; return renderHome();
   }
 }
@@ -769,17 +924,32 @@ async function refreshJourneys() {
 }
 
 document.addEventListener("click", async (event) => {
-  const el = event.target.closest("[data-go],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert],[data-info],[data-lang]");
+  const el = event.target.closest("[data-go],[data-back],[data-act],[data-topic],[data-journey],[data-step],[data-tab],[data-focus],[data-acc],[data-pref],[data-size],[data-read],[data-del-alert],[data-info],[data-lang],[data-bmove],[data-bdel]");
   if (state.langOpen && !(el && (el.dataset.lang || el.dataset.act === "lang"))) { state.langOpen = false; if (state.page === "login") renderLogin(); }
   if (!el) return;
   const d = el.dataset;
+  if (d.back) {
+    if (d.back === "journeys") await refreshJourneys();
+    return goBack(d.back);
+  }
+  if (d.bmove) {
+    readBuilder();
+    const [i, dir] = d.bmove.split(":").map(Number);
+    const steps = state.builder.steps;
+    if (steps[i + dir]) [steps[i], steps[i + dir]] = [steps[i + dir], steps[i]];
+    return renderBuilder();
+  }
+  if (d.bdel !== undefined) {
+    readBuilder();
+    if (state.builder.steps.length > 1) state.builder.steps.splice(Number(d.bdel), 1);
+    return renderBuilder();
+  }
   if (d.lang) { state.langOpen = false; return setLanguage(d.lang); }
   if (d.info) return toast(t(LOGIN_INFO[d.info]));
   if (d.topic) {
     state.history = [];
     state.sources = [];
-    state.page = "chat";
-    renderChat();
+    go("chat");
     sendChat(d.topic);
     return;
   }
@@ -826,7 +996,16 @@ document.addEventListener("click", async (event) => {
   }
   switch (d.act) {
     case "lang": state.langOpen = !state.langOpen; return renderLogin();
-    case "new-chat": return startNewChat();
+    case "new-chat": state.newMenu = false; return startNewChat();
+    case "new-own": return openBuilder(null);
+    case "edit-steps": return state.current ? openBuilder(state.current) : undefined;
+    case "new-menu": state.newMenu = !state.newMenu; return renderJourneys();
+    case "builder-add":
+      readBuilder();
+      if (state.builder.steps.length < MAX_STEPS) state.builder.steps.push(blankStep());
+      renderBuilder();
+      document.getElementById(`b-title-${state.builder.steps.length - 1}`)?.focus();
+      return;
     case "login-phone": state.loginStep = "phone"; return renderLogin();
     case "login-back": state.loginStep = "start"; state.loginError = ""; return renderLogin();
     case "mic": return toast(t("chat.micSoon"));
@@ -849,7 +1028,7 @@ document.addEventListener("click", async (event) => {
         state.journeys = state.journeys.filter((j) => j.id !== state.current.id);
         state.current = null;
         toast(t("journey.deleted"));
-        go("journeys");
+        go("journeys", {}, { replace: true });
       } catch (error) { toast(error.message); }
       return;
     case "logout":
@@ -881,6 +1060,7 @@ async function initialize() {
     state.loginError = error.message;
   }
   if (!state.authenticated) state.page = "login";
+  else syncHistory(true);
   render();
 }
 

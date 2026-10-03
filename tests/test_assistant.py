@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import requests
 from fastapi import HTTPException
@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from webapp.app import (
     MAX_PAGE_TEXT,
+    JourneyStepInput,
     _domain_cache,
     app,
     format_evidence,
@@ -21,6 +22,7 @@ from webapp.app import (
     normalize_domains,
     official_domains,
     parse_jsonl,
+    rebuild_steps,
     require_guest,
     retrieve_pages,
     validate_page,
@@ -176,6 +178,78 @@ class AssistantTests(unittest.TestCase):
             json={"title": "Plan", "target_date": "31.12.2026"},
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_user_can_create_own_journey(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = ("22222222-2222-2222-2222-222222222222",)
+        saved = {"id": "22222222-2222-2222-2222-222222222222", "title": "Settle in Kraków"}
+        with patch("webapp.app.database_connection", return_value=connection), \
+                patch("webapp.app.get_journey", return_value=saved) as loader:
+            response = self.client.post("/api/journeys", json={
+                "title": " Settle in Kraków ",
+                "target_date": "2026-12-01",
+                "language": "pl",
+                "steps": [{"title": "Find a flat", "action": "Look on OLX", "deadline": "by 15.11"}],
+            })
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json(), saved)
+        params = cursor.execute.call_args.args[1]
+        self.assertEqual(params[:4], ("test-profile-id", "Settle in Kraków", "Settle in Kraków", "pl"))
+        journey = json.loads(params[4])
+        self.assertTrue(journey["custom"])
+        self.assertEqual(journey["target_date"], "2026-12-01")
+        self.assertEqual(journey["sources"], [])
+        self.assertEqual(journey["journey_blocks"], [{
+            "title": "Find a flat", "action": "Look on OLX", "deadline": "by 15.11", "source_ids": [], "custom": True,
+        }])
+        connection.commit.assert_called_once()
+        self.assertEqual(loader.call_args.args, ("test-profile-id", "22222222-2222-2222-2222-222222222222"))
+
+    def test_own_journey_needs_named_steps(self):
+        for steps in ([], [{"title": "  "}]):
+            with self.subTest(steps=steps), \
+                    patch("webapp.app.database_connection", return_value=MagicMock()):
+                response = self.client.post("/api/journeys", json={"title": "Plan", "steps": steps})
+                self.assertEqual(response.status_code, 422)
+
+    def test_editing_steps_keeps_official_steps_and_remaps_progress(self):
+        official = {"title": "Apply for PESEL", "action": "Go to the office.", "source_ids": ["S1"]}
+        own = {"title": "Buy SIM", "action": "", "deadline": "", "source_ids": [], "custom": True}
+        steps = [
+            JourneyStepInput(title="Get a SIM card", from_index=1),
+            JourneyStepInput(title="ignored rename", from_index=0),
+            JourneyStepInput(title="Open bank account", deadline="next week"),
+        ]
+        blocks, completed = rebuild_steps([official, own], {0}, steps)
+        self.assertEqual(blocks[0]["title"], "Get a SIM card")
+        self.assertTrue(blocks[0]["custom"])
+        self.assertEqual(blocks[1], official)
+        self.assertEqual(blocks[2]["deadline"], "next week")
+        self.assertEqual(completed, [1])
+
+    def test_editing_steps_rejects_bad_references_and_empty_names(self):
+        old = [{"title": "A", "source_ids": ["S1"]}]
+        for steps in (
+            [JourneyStepInput(from_index=3)],
+            [JourneyStepInput(from_index=0), JourneyStepInput(from_index=0)],
+            [JourneyStepInput(title=" ")],
+        ):
+            with self.subTest(steps=steps), self.assertRaises(HTTPException) as caught:
+                rebuild_steps(old, set(), steps)
+            self.assertEqual(caught.exception.status_code, 422)
+
+    def test_edit_steps_endpoint_saves_for_profile_and_handles_missing_journey(self):
+        journey_id = "11111111-1111-1111-1111-111111111111"
+        result = {"journey_blocks": [{"title": "A"}], "completed_steps": []}
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=result)) as database_call:
+            response = self.client.put(f"/api/journeys/{journey_id}/steps", json={"steps": [{"title": "A"}]})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), result)
+        self.assertEqual(database_call.await_args.args[1], "test-profile-id")
+        with patch("webapp.app.database_call", new=AsyncMock(return_value=None)):
+            response = self.client.put(f"/api/journeys/{journey_id}/steps", json={"steps": [{"title": "A"}]})
+        self.assertEqual(response.status_code, 404)
 
     def test_api_is_available_without_a_shared_access_token(self):
         self.assertEqual(

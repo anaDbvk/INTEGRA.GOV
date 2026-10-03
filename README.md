@@ -165,6 +165,21 @@ login screen or in Profile › Preferences. The choice is saved in the browser,
 and the assistant answers in the same language. Official Polish terms (PESEL,
 NFZ, ZUS) stay untranslated.
 
+### Own journeys and navigation
+
+Users can also build a journey themselves ("Create my own journey" on Home or
+the + button in My journeys): a name, an optional target date and up to 20
+steps, each with a name, optional notes and an optional deadline
+(`POST /api/journeys`). Any journey, including one from the assistant, can be
+edited with "Edit or add steps" (`PUT /api/journeys/{id}/steps`): users can
+add, reorder and remove steps. Official steps from the assistant keep their
+text and cited sources and can only be moved or removed; own steps are
+editable and are labelled as personal notes, not official advice. Completed
+progress follows the steps when they are reordered.
+
+The phone/browser Back button follows the in-app navigation, and the bottom
+navigation bar is shown on Home as well as the main tabs.
+
 ### How the assistant finds official information
 
 The assistant no longer reads scraped pages from Supabase. For each chat turn

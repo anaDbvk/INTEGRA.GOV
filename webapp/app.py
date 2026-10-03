@@ -164,8 +164,30 @@ class ConversationUpdate(BaseModel):
     history: list[ChatMessage] = Field(max_length=MAX_SAVED_HISTORY)
 
 
+MAX_JOURNEY_STEPS = 20
+
+
 class JourneyProgressUpdate(BaseModel):
-    completed_steps: list[int] = Field(max_length=8)
+    completed_steps: list[int] = Field(max_length=MAX_JOURNEY_STEPS)
+
+
+class JourneyStepInput(BaseModel):
+    # from_index keeps an existing step (and its official sources) when editing.
+    from_index: int | None = Field(default=None, ge=0, le=MAX_JOURNEY_STEPS)
+    title: str = Field(default="", max_length=120)
+    action: str = Field(default="", max_length=1_000)
+    deadline: str = Field(default="", max_length=80)
+
+
+class JourneyCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    target_date: date | None = None
+    language: str = Field(default="en", pattern="^(en|pl|uk)$")
+    steps: list[JourneyStepInput] = Field(min_length=1, max_length=MAX_JOURNEY_STEPS)
+
+
+class JourneyStepsUpdate(BaseModel):
+    steps: list[JourneyStepInput] = Field(min_length=1, max_length=MAX_JOURNEY_STEPS)
 
 
 class JourneyDetailsUpdate(BaseModel):
@@ -820,6 +842,99 @@ def update_journey_details(profile_id, journey_id, title, target_date, focus):
         connection.close()
 
 
+def custom_block(step):
+    title = step.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Every step needs a name.")
+    return {
+        "title": title,
+        "action": step.action.strip(),
+        "deadline": step.deadline.strip(),
+        "source_ids": [],
+        "custom": True,
+    }
+
+
+def rebuild_steps(old_blocks, old_completed, steps):
+    """Build the new step list; kept official steps stay unchanged, own steps are editable."""
+    blocks, completed, used = [], [], set()
+    for step in steps:
+        index = step.from_index
+        if index is None:
+            blocks.append(custom_block(step))
+            continue
+        if index >= len(old_blocks) or index in used:
+            raise HTTPException(status_code=422, detail="Step reference is not valid.")
+        used.add(index)
+        old = old_blocks[index]
+        blocks.append(custom_block(step) if old.get("custom") else old)
+        if index in old_completed:
+            completed.append(len(blocks) - 1)
+    return blocks, completed
+
+
+def create_custom_journey(profile_id, body):
+    blocks = [custom_block(step) for step in body.steps]
+    journey = {
+        "outcome": "journey",
+        "custom": True,
+        "message": "",
+        "journey_blocks": blocks,
+        "sources": [],
+        "target_date": body.target_date.isoformat() if body.target_date else None,
+        "focus": [],
+    }
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """insert into user_journeys (profile_id, title, goal, language, journey)
+                   values (%s, %s, %s, %s, %s::jsonb) returning id""",
+                (profile_id, body.title.strip(), body.title.strip(), body.language,
+                 json.dumps(journey, ensure_ascii=False)),
+            )
+            journey_id = cursor.fetchone()[0]
+        connection.commit()
+        return str(journey_id)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def replace_journey_steps(profile_id, journey_id, steps):
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """select journey, completed_steps from user_journeys
+                   where profile_id = %s and id = %s for update""",
+                (profile_id, str(journey_id)),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            journey, old_completed = row
+            blocks, completed = rebuild_steps(
+                journey.get("journey_blocks", []), set(old_completed or []), steps
+            )
+            cursor.execute(
+                """update user_journeys
+                   set journey = jsonb_set(journey, '{journey_blocks}', %s::jsonb),
+                       completed_steps = %s, updated_at = now()
+                   where profile_id = %s and id = %s""",
+                (json.dumps(blocks, ensure_ascii=False), completed, profile_id, str(journey_id)),
+            )
+        connection.commit()
+        return {"journey_blocks": blocks, "completed_steps": completed}
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def delete_journey(profile_id, journey_id):
     connection = database_connection()
     try:
@@ -1399,6 +1514,26 @@ async def update_saved_conversation(
 @app.get("/api/journeys")
 async def get_saved_journeys(profile_id: str = Depends(require_guest)):
     return {"journeys": await database_call(list_journeys, profile_id)}
+
+
+@app.post("/api/journeys", status_code=201)
+async def create_own_journey(body: JourneyCreate, profile_id: str = Depends(require_guest)):
+    if not body.title.strip():
+        raise HTTPException(status_code=422, detail="Journey name cannot be empty.")
+    journey_id = await database_call(create_custom_journey, profile_id, body)
+    return await database_call(get_journey, profile_id, journey_id)
+
+
+@app.put("/api/journeys/{journey_id}/steps")
+async def save_journey_steps(
+    journey_id: UUID,
+    body: JourneyStepsUpdate,
+    profile_id: str = Depends(require_guest),
+):
+    result = await database_call(replace_journey_steps, profile_id, journey_id, body.steps)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Journey not found.")
+    return result
 
 
 @app.get("/api/journeys/{journey_id}")
