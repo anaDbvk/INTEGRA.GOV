@@ -44,6 +44,7 @@ class AssistantTests(unittest.TestCase):
         app.state.pages = []
         app.state.knowledge_source = ""
         app.state.knowledge_error = ""
+        app.state.last_load_attempt = None
         self.tempdir = tempfile.TemporaryDirectory()
         dataset = Path(self.tempdir.name) / "missing.jsonl"
         self.dataset_patch = patch("webapp.app.DEFAULT_DATASET", dataset)
@@ -65,6 +66,8 @@ class AssistantTests(unittest.TestCase):
     def tearDown(self):
         app.state.pages = []
         app.state.knowledge_source = ""
+        app.state.knowledge_error = ""
+        app.state.last_load_attempt = None
 
     def test_ui_is_served_without_exposing_api_credentials(self):
         response = self.client.get("/")

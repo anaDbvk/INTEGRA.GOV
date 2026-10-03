@@ -32,6 +32,7 @@ MAX_HISTORY_CHARS = 6_000
 MAX_EVIDENCE_PAGES = 5
 MAX_EVIDENCE_CHARS = 3_000
 MAX_GITHUB_RUNS = 20
+RELOAD_COOLDOWN_SECONDS = 300
 GITHUB_API = "https://api.github.com"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 _rate_hits = {}
@@ -54,11 +55,12 @@ app = FastAPI(
 app.state.pages = []
 app.state.knowledge_source = ""
 app.state.knowledge_error = ""
+app.state.last_load_attempt = None
 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(max_length=2_000)
+    content: str = Field(max_length=MAX_HISTORY_CHARS)
 
 
 class ChatRequest(BaseModel):
@@ -267,6 +269,11 @@ def load_github_dataset():
 def ensure_default_dataset():
     if app.state.pages:
         return
+    now = time.monotonic()
+    last = app.state.last_load_attempt
+    if last is not None and now - last < RELOAD_COOLDOWN_SECONDS:
+        return
+    app.state.last_load_attempt = now
     github_token = os.getenv("GITHUB_TOKEN", "")
     github_repository = os.getenv("GITHUB_REPOSITORY", "")
     if github_token or github_repository:
@@ -309,7 +316,7 @@ def ensure_default_dataset():
 
 @app.on_event("startup")
 async def load_default_dataset():
-    ensure_default_dataset()
+    await run_in_threadpool(ensure_default_dataset)
 
 
 def retrieve_pages(pages, query, limit=MAX_EVIDENCE_PAGES):
@@ -430,7 +437,7 @@ async def index():
 
 @app.get("/api/status")
 async def status():
-    ensure_default_dataset()
+    await run_in_threadpool(ensure_default_dataset)
     return {
         "loaded_pages": len(app.state.pages),
         "knowledge_source": app.state.knowledge_source,
@@ -478,7 +485,7 @@ def check_rate_limit(request: Request):
 
 @app.post("/api/interview", dependencies=[Depends(check_rate_limit)])
 async def interview(request: ChatRequest):
-    ensure_default_dataset()
+    await run_in_threadpool(ensure_default_dataset)
     pages = app.state.pages
     if not pages:
         raise HTTPException(
