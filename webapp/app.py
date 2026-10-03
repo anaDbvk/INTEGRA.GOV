@@ -82,8 +82,6 @@ def validate_page(row, line_number):
     page_type = row.get("page_type", "general_info")
     if not all(isinstance(value, str) for value in (title, text, source, page_type)):
         raise ValueError(f"Line {line_number} has invalid text fields.")
-    if len(text) > MAX_PAGE_TEXT:
-        raise ValueError(f"Line {line_number} exceeds the {MAX_PAGE_TEXT}-character page limit.")
     if not text.strip():
         raise ValueError(f"Line {line_number} has no extracted page text.")
     return {
@@ -102,6 +100,19 @@ def validate_page(row, line_number):
     }
 
 
+def split_page_text(text):
+    chunks = []
+    while len(text) > MAX_PAGE_TEXT:
+        split_at = text.rfind(" ", 0, MAX_PAGE_TEXT + 1)
+        if split_at < MAX_PAGE_TEXT * 3 // 4:
+            split_at = MAX_PAGE_TEXT
+        chunks.append(text[:split_at].strip())
+        text = text[split_at:].lstrip()
+    if text.strip():
+        chunks.append(text.strip())
+    return chunks
+
+
 def parse_jsonl(data):
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 25 MB upload limit.")
@@ -114,13 +125,24 @@ def parse_jsonl(data):
         for line_number, line in enumerate(content.splitlines(), start=1):
             if not line.strip():
                 continue
-            if len(pages) >= MAX_PAGES:
-                raise ValueError(f"Upload exceeds the {MAX_PAGES}-page limit.")
             try:
                 row = json.loads(line)
             except json.JSONDecodeError as error:
                 raise ValueError(f"Line {line_number} is not valid JSON.") from error
-            pages.append(validate_page(row, line_number))
+            if not isinstance(row, dict):
+                raise ValueError(f"Line {line_number} must be a JSON object.")
+            text = row.get("text", "")
+            if not isinstance(text, str):
+                raise ValueError(f"Line {line_number} has invalid text fields.")
+            text_chunks = split_page_text(text)
+            title = row.get("title", "")
+            for index, chunk in enumerate(text_chunks, start=1):
+                if len(pages) >= MAX_PAGES:
+                    raise ValueError(f"Upload exceeds the {MAX_PAGES}-page limit.")
+                chunk_row = {**row, "text": chunk}
+                if len(text_chunks) > 1 and isinstance(title, str):
+                    chunk_row["title"] = f"{title[:450]} (part {index}/{len(text_chunks)})"
+                pages.append(validate_page(chunk_row, line_number))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not pages:
@@ -209,18 +231,31 @@ def load_github_dataset():
             "No unexpired pl_gov_pages artifacts found in the latest successful workflow runs."
         )
 
-    rows_by_url = {}
+    pages_by_url = {}
     for artifact in artifacts:
         content = download_artifact(artifact, headers)
+        artifact_pages = {}
         for row in parse_jsonl(content):
-            previous = rows_by_url.get(row["url"])
-            if previous is None or row["fetched_at"] > previous["fetched_at"]:
-                rows_by_url[row["url"]] = row
-            if len(rows_by_url) > MAX_PAGES:
-                raise RuntimeError(f"Combined GitHub artifacts exceed the {MAX_PAGES}-page limit.")
-    if not rows_by_url:
+            url = row["url"]
+            fetched_at = row["fetched_at"]
+            current = artifact_pages.get(url)
+            if current is None or fetched_at > current[0]:
+                artifact_pages[url] = (fetched_at, [row])
+            elif fetched_at == current[0]:
+                current[1].append(row)
+        for url, (fetched_at, page_parts) in artifact_pages.items():
+            previous = pages_by_url.get(url)
+            if previous is None or fetched_at >= previous[0]:
+                pages_by_url[url] = (fetched_at, page_parts)
+        if sum(len(parts) for _, parts in pages_by_url.values()) > MAX_PAGES:
+            raise RuntimeError(f"Combined GitHub artifacts exceed the {MAX_PAGES}-page limit.")
+    if not pages_by_url:
         raise RuntimeError("The GitHub scrape artifacts contained no usable pages.")
-    return list(rows_by_url.values()), len(artifacts)
+    return [
+        page
+        for _, page_parts in pages_by_url.values()
+        for page in page_parts
+    ], len(artifacts)
 
 
 def ensure_default_dataset():
@@ -289,12 +324,51 @@ def retrieve_pages(pages, query, limit=MAX_EVIDENCE_PAGES):
     return [page for _, page in scored[:limit]]
 
 
-def format_evidence(pages):
+def relevant_excerpt(text, query, limit):
+    query_tokens = set(tokenize(query))
+    positions = [
+        match.start()
+        for match in TOKEN_RE.finditer(text)
+        if match.group().lower() in query_tokens
+    ]
+    if len(text) <= limit or not positions:
+        return text[:limit]
+
+    best_start = 0
+    best_end = 0
+    window_start = 0
+    for window_end, position in enumerate(positions):
+        while position - positions[window_start] >= limit:
+            window_start += 1
+        if window_end - window_start > best_end - best_start:
+            best_start, best_end = window_start, window_end
+
+    start = max(0, positions[best_start] - (limit // 4))
+    start = min(start, len(text) - limit)
+    end = start + limit
+    if start:
+        next_space = text.find(" ", start)
+        if 0 <= next_space < start + 200:
+            start = next_space + 1
+            end = start + limit
+    if end < len(text):
+        previous_space = text.rfind(" ", end - 200, end)
+        if previous_space > start:
+            end = previous_space
+    excerpt = text[start:end]
+    return f"{'…' if start else ''}{excerpt}{'…' if end < len(text) else ''}"
+
+
+def format_evidence(pages, query=""):
     sources = []
     blocks = []
     remaining = MAX_EVIDENCE_CHARS * MAX_EVIDENCE_PAGES
     for index, page in enumerate(pages, start=1):
-        excerpt = page["text"][: min(MAX_EVIDENCE_CHARS, remaining)]
+        excerpt = relevant_excerpt(
+            page["text"],
+            query,
+            min(MAX_EVIDENCE_CHARS, remaining),
+        )
         remaining -= len(excerpt)
         source = {
             "id": f"S{index}",
@@ -398,7 +472,7 @@ async def interview(request: ChatRequest):
             detail="Configure ANTHROPIC_API_KEY and ANTHROPIC_MODEL on the server.",
         )
 
-    evidence, sources = format_evidence(relevant_pages)
+    evidence, sources = format_evidence(relevant_pages, f"{history_text} {request.answer}")
     messages = build_conversation(
         request.answer,
         [turn.model_dump() for turn in request.history],

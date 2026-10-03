@@ -54,6 +54,9 @@ source-cited journey blocks. It interviews in English, Polish, or Ukrainian
 and searches scraper JSONL pages held in server memory. Only the conversation
 and up to five matching page excerpts are sent to Anthropic. Pages are loaded
 from GitHub Actions when configured, or from a local JSONL file for preview.
+Long scraped pages are split into searchable chunks at load time instead of
+being rejected; excerpts are selected around the user's relevant terms so the
+assistant can use information that appears later on a source page.
 
 For a local preview, place a merged JSONL file at
 `webapp/data/pl_gov_pages.jsonl`; the backend loads it into memory on startup

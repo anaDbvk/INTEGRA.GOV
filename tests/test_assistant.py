@@ -10,7 +10,16 @@ import requests
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from webapp.app import app, github_get_json, load_github_dataset, retrieve_pages, validate_page
+from webapp.app import (
+    MAX_PAGE_TEXT,
+    app,
+    format_evidence,
+    github_get_json,
+    load_github_dataset,
+    parse_jsonl,
+    retrieve_pages,
+    validate_page,
+)
 
 
 def jsonl_page(
@@ -126,6 +135,29 @@ class AssistantTests(unittest.TestCase):
         latest = next(page for page in pages if page["url"] == new["url"])
         self.assertEqual(latest["text"], "Latest scraped content.")
 
+    def test_github_loader_keeps_all_chunks_from_an_oversized_page(self):
+        large_page = jsonl_page(
+            text=("service information " * (MAX_PAGE_TEXT // 20)) + "late deadline requirements."
+        )
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "test-github-token", "GITHUB_REPOSITORY": "owner/repo"}),
+            patch(
+                "webapp.app.github_get_json",
+                side_effect=[
+                    {"workflow_runs": [{"id": 123}]},
+                    {"artifacts": [{"id": 456, "name": "pl_gov_pages", "expired": False}]},
+                ],
+            ),
+            patch(
+                "webapp.app.download_artifact",
+                return_value=(json.dumps(large_page) + "\n").encode(),
+            ),
+        ):
+            pages, artifact_count = load_github_dataset()
+        self.assertEqual(artifact_count, 1)
+        self.assertEqual(len(pages), 2)
+        self.assertIn("late deadline requirements.", format_evidence(pages, "late deadline")[0])
+
     def test_missing_github_repository_is_shown_in_status(self):
         with patch.dict(os.environ, {"GITHUB_TOKEN": "test-github-token"}, clear=False):
             os.environ.pop("GITHUB_REPOSITORY", None)
@@ -177,6 +209,21 @@ class AssistantTests(unittest.TestCase):
         selected = retrieve_pages(app.state.pages, "How to report death?")
         self.assertEqual(len(selected), 1)
         self.assertIn("Report death", selected[0]["title"])
+
+    def test_oversized_scraped_page_is_split_without_losing_content(self):
+        text = ("general information " * (MAX_PAGE_TEXT // 20)) + "late deadline details."
+        pages = parse_jsonl((json.dumps(jsonl_page(text=text)) + "\n").encode())
+        self.assertGreater(len(pages), 1)
+        self.assertTrue(all(len(page["text"]) <= MAX_PAGE_TEXT for page in pages))
+        self.assertTrue(all("(part " in page["title"] for page in pages))
+        self.assertIn("late deadline details.", pages[-1]["text"])
+        self.assertIn("late deadline details.", format_evidence(pages, "late deadline")[0])
+
+    def test_retrieval_excerpt_centers_on_relevant_text(self):
+        text = ("general information " * 500) + "Required documents include proof of address."
+        page = validate_page(jsonl_page(text=text), 1)
+        evidence, _ = format_evidence([page], "required documents")
+        self.assertIn("Required documents include proof of address.", evidence)
 
     def test_interview_returns_source_cited_journey_blocks(self):
         app.state.pages = [validate_page(jsonl_page(), 1)]
