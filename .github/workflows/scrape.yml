@@ -33,9 +33,17 @@ jobs:
         run: python pl_gov_scraper.py
 
       - name: Save output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pl_gov_pages
           path: pl_gov_pages.jsonl
           retention-days: 90
           if-no-files-found: warn
+
+      - name: Load into Supabase
+        if: success()
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python load_to_supabase.py pl_gov_pages.jsonl
