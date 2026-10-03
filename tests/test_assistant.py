@@ -30,11 +30,9 @@ class AssistantTests(unittest.TestCase):
     def setUp(self):
         app.state.pages = []
         self.client = TestClient(app)
-        self.headers = {"Authorization": "Bearer test-access-token"}
         self.env = patch.dict(
             os.environ,
             {
-                "APP_ACCESS_TOKEN": "test-access-token",
                 "ANTHROPIC_API_KEY": "test-api-key",
                 "ANTHROPIC_MODEL": "test-model",
             },
@@ -52,16 +50,9 @@ class AssistantTests(unittest.TestCase):
         self.assertIn("sent to Anthropic", response.text)
         self.assertNotIn("test-api-key", response.text)
 
-    def test_api_rejects_missing_or_wrong_access_token(self):
-        self.assertEqual(self.client.get("/api/status").status_code, 401)
+    def test_api_is_available_without_a_shared_access_token(self):
         self.assertEqual(
-            self.client.get(
-                "/api/status", headers={"Authorization": "Bearer wrong"}
-            ).status_code,
-            401,
-        )
-        self.assertEqual(
-            self.client.get("/api/status", headers=self.headers).json(),
+            self.client.get("/api/status").json(),
             {"loaded_pages": 0},
         )
 
@@ -70,7 +61,6 @@ class AssistantTests(unittest.TestCase):
         bad = jsonl_page(url="javascript:alert(1)")
         response = self.client.post(
             "/api/knowledge",
-            headers=self.headers,
             files={"file": ("pages.jsonl", json.dumps(bad) + "\n")},
         )
         self.assertEqual(response.status_code, 400)
@@ -92,7 +82,6 @@ class AssistantTests(unittest.TestCase):
         ])
         response = self.client.post(
             "/api/knowledge",
-            headers=self.headers,
             files={"file": ("pl_gov_pages.jsonl", content)},
         )
         self.assertEqual(response.status_code, 200)
@@ -131,7 +120,6 @@ class AssistantTests(unittest.TestCase):
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
-                headers=self.headers,
                 json={"answer": "I need to report a death.", "language": "en"},
             )
         self.assertEqual(response.status_code, 200, response.text)
@@ -163,7 +151,6 @@ class AssistantTests(unittest.TestCase):
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
-                headers=self.headers,
                 json={"answer": "I need help with local events.", "language": "en"},
             )
         self.assertEqual(response.status_code, 200)
@@ -198,7 +185,6 @@ class AssistantTests(unittest.TestCase):
         with patch("webapp.app.anthropic.AsyncAnthropic", FakeClient):
             response = self.client.post(
                 "/api/interview",
-                headers=self.headers,
                 json={"answer": "I need to report a death.", "language": "en"},
             )
         self.assertEqual(response.status_code, 502)

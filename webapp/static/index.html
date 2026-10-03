@@ -94,12 +94,8 @@
 
     <div class="layout">
       <aside class="panel" aria-label="Assistant setup">
-        <h2>Connect your private assistant</h2>
-        <p class="muted">Use the access token configured by the app administrator, then load a scraper artifact from GitHub Actions.</p>
-
-        <label class="field-label" for="accessToken">App access token</label>
-        <input id="accessToken" type="password" autocomplete="current-password" placeholder="Enter the app token">
-        <button id="connectButton" class="button secondary" type="button" style="margin-top:8px">Connect</button>
+        <h2>Load assistant knowledge</h2>
+        <p class="muted">Load a scraper artifact downloaded from GitHub Actions. The assistant searches the pages you provide.</p>
 
         <label class="field-label" for="language">Interview language</label>
         <select id="language" style="width:100%;height:40px;padding:0 10px;border:1px solid #d7dfe8;border-radius:9px;background:white;color:#344054">
@@ -117,6 +113,7 @@
           <strong>Privacy note:</strong> scraped text is redacted on a best-effort basis. Your question and selected page excerpts are sent to Anthropic to generate an answer. Don’t enter personal or sensitive information.
         </div>
         <p class="muted" style="margin:13px 0 0">The uploaded artifact stays in server memory and is cleared when the app restarts or another artifact is loaded. GitHub keeps the original workflow artifact for its configured retention period.</p>
+        <p class="muted">This draft has no built-in sign-in. Deploy it only behind your platform’s authentication and request limits.</p>
       </aside>
 
       <section class="chat-card" aria-label="Chat with SmartIN">
@@ -148,7 +145,6 @@
   </main>
 
   <script>
-    const tokenInput = document.getElementById("accessToken");
     const setupFeedback = document.getElementById("setupFeedback");
     const statusText = document.getElementById("statusText");
     const statusDot = document.getElementById("statusDot");
@@ -159,7 +155,6 @@
     const uploadButton = document.getElementById("uploadButton");
     const history = [];
     let embedParentOrigin = "";
-    tokenInput.value = sessionStorage.getItem("smartinAccessToken") || "";
     fetch("/api/config")
       .then((response) => response.ok ? response.json() : {})
       .then((config) => { embedParentOrigin = config.embed_parent_origin || ""; })
@@ -176,17 +171,12 @@
     }
 
     async function api(path, options = {}) {
-      const token = tokenInput.value.trim();
-      if (!token) throw new Error("Enter the app access token first.");
       const headers = new Headers(options.headers || {});
-      headers.set("Authorization", `Bearer ${token}`);
       const response = await fetch(path, { ...options, headers });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if (response.status === 401) sessionStorage.removeItem("smartinAccessToken");
         throw new Error(payload.detail || `Request failed (${response.status}).`);
       }
-      sessionStorage.setItem("smartinAccessToken", token);
       return payload;
     }
 
@@ -275,16 +265,6 @@
         );
       }
     }
-
-    document.getElementById("connectButton").addEventListener("click", async () => {
-      try {
-        const result = await api("/api/status");
-        setKnowledgeStatus(result.loaded_pages);
-        setFeedback("Connected to the SmartIN assistant.");
-      } catch (error) {
-        setFeedback(error.message, true);
-      }
-    });
 
     uploadButton.addEventListener("click", async () => {
       const file = document.getElementById("artifactFile").files[0];

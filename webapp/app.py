@@ -3,14 +3,13 @@ import logging
 import math
 import os
 import re
-import secrets
 from collections import Counter
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
 import anthropic
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -52,15 +51,6 @@ class ChatRequest(BaseModel):
     answer: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     history: list[ChatMessage] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
     language: str = Field(default="en", pattern="^(en|pl|uk)$")
-
-
-def require_access_token(authorization: str | None = Header(default=None)):
-    expected = os.getenv("APP_ACCESS_TOKEN", "")
-    if not expected:
-        raise HTTPException(status_code=503, detail="Assistant access is not configured.")
-    scheme, _, supplied = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied, expected):
-        raise HTTPException(status_code=401, detail="Enter the assistant access token.")
 
 
 def tokenize(text):
@@ -209,7 +199,7 @@ async def index():
 
 
 @app.get("/api/status")
-async def status(_=Depends(require_access_token)):
+async def status():
     return {"loaded_pages": len(app.state.pages)}
 
 
@@ -221,7 +211,6 @@ async def public_config():
 @app.post("/api/knowledge")
 async def upload_knowledge(
     file: UploadFile = File(...),
-    _=Depends(require_access_token),
 ):
     if not (file.filename or "").lower().endswith((".jsonl", ".ndjson")):
         raise HTTPException(status_code=415, detail="Choose a .jsonl or .ndjson artifact file.")
@@ -232,7 +221,7 @@ async def upload_knowledge(
 
 
 @app.post("/api/interview")
-async def interview(request: ChatRequest, _=Depends(require_access_token)):
+async def interview(request: ChatRequest):
     pages = app.state.pages
     if not pages:
         raise HTTPException(status_code=409, detail="Upload a scraper JSONL artifact first.")
