@@ -2,50 +2,35 @@ import json
 import hmac
 import hashlib
 import logging
-import math
 import os
 import re
 import secrets
 import threading
 import time
-import unicodedata
-from collections import Counter
 from datetime import date, datetime, timezone
-from io import BytesIO
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
 from urllib.parse import urlparse
-from zipfile import BadZipFile, ZipFile
 
 import anthropic
 import psycopg2
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import requests
 
 logger = logging.getLogger("smartin_assistant")
 STATIC_DIR = Path(__file__).parent / "static"
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-MAX_PAGES = 20_000
-DEFAULT_DATASET = Path(__file__).parent / "data" / "pl_gov_pages.jsonl"
-MAX_PAGE_TEXT = 100_000
 MAX_QUESTION_CHARS = 2_000
 MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_CHARS = 6_000
-MAX_EVIDENCE_PAGES = 5
-MAX_EVIDENCE_CHARS = 3_000
-MAX_GITHUB_RUNS = 20
-RELOAD_COOLDOWN_SECONDS = 300
 SESSION_COOKIE = "smartin_session"
 DEVICE_COOKIE = "smartin_device"
 SESSION_MAX_AGE = 15 * 24 * 60 * 60
 DEVICE_MAX_AGE = 5 * 365 * 24 * 60 * 60
 MAX_SAVED_HISTORY = 24
-GITHUB_API = "https://api.github.com"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 ASSISTANT_DAILY_LIMIT = int(os.getenv("ASSISTANT_DAILY_LIMIT", "50"))
 _rate_hits = {}
@@ -72,13 +57,6 @@ SECURITY_HEADERS = {
 DOMAIN_CACHE_SECONDS = 300
 _domain_cache = {}
 DOMAIN_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}")
-TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
-STOP_WORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
-    "how", "i", "in", "is", "it", "me", "of", "on", "or", "the", "to", "what",
-    "when", "where", "which", "with", "you", "czy", "do", "dla", "i", "jak",
-    "jest", "na", "o", "od", "oraz", "po", "się", "w", "we", "z", "za",
-}
 SYSTEM_PROMPT = """You are SmartIN, a calm, practical guide to Polish public services and municipal life: documents, marriage, housing, death and bereavement, taxes, business, residence, and local events. Think of yourself as a knowledgeable friend who works at the municipal office: plain-spoken, kind, never condescending. You are not a lawyer, tax adviser, or official; never claim to replace one.
 
 INTERVIEW
@@ -177,12 +155,6 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-app.state.pages = []
-app.state.knowledge_source = ""
-app.state.knowledge_error = ""
-app.state.last_load_attempt = None
-
-
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=MAX_HISTORY_CHARS)
@@ -243,20 +215,6 @@ class AlertCreate(BaseModel):
 
 class AlertReadUpdate(BaseModel):
     is_read: bool
-
-
-def tokenize(text):
-    return [
-        stem(token)
-        for token in TOKEN_RE.findall(text)
-        if len(token) > 1 and token.lower() not in STOP_WORDS
-    ]
-
-
-def stem(token):
-    token = unicodedata.normalize("NFKD", token.lower())
-    token = "".join(char for char in token if not unicodedata.combining(char))
-    return token.replace("ł", "l")[:6]
 
 
 class PooledConnection:
@@ -521,282 +479,6 @@ async def database_call(function, *args):
     except Exception as error:
         logger.exception("Supabase operation failed")
         raise HTTPException(status_code=503, detail="Supabase is temporarily unavailable.") from error
-
-
-def validate_page(row, line_number):
-    if not isinstance(row, dict):
-        raise ValueError(f"Line {line_number} must be a JSON object.")
-    url = row.get("url")
-    parsed_url = urlparse(url if isinstance(url, str) else "")
-    if parsed_url.scheme not in ("https", "http") or not parsed_url.netloc:
-        raise ValueError(f"Line {line_number} needs an HTTP(S) source URL.")
-    title = row.get("title", "")
-    text = row.get("text", "")
-    source = row.get("source", "")
-    page_type = row.get("page_type", "general_info")
-    if not all(isinstance(value, str) for value in (title, text, source, page_type)):
-        raise ValueError(f"Line {line_number} has invalid text fields.")
-    if not text.strip():
-        raise ValueError(f"Line {line_number} has no extracted page text.")
-    return {
-        "url": parsed_url._replace(scheme="https").geturl(),
-        "title": title[:500],
-        "text": text,
-        "source": source[:100],
-        "page_type": page_type[:100],
-        "fetched_at": str(row.get("fetched_at", ""))[:100],
-        "event_dates": (
-            row.get("upcoming_event_dates", row.get("event_dates", []))
-            if isinstance(row.get("upcoming_event_dates", row.get("event_dates", [])), list)
-            else []
-        ),
-        "tokens": Counter(tokenize(f"{title} {text}")),
-    }
-
-
-def split_page_text(text):
-    chunks = []
-    while len(text) > MAX_PAGE_TEXT:
-        split_at = text.rfind(" ", 0, MAX_PAGE_TEXT + 1)
-        if split_at < MAX_PAGE_TEXT * 3 // 4:
-            split_at = MAX_PAGE_TEXT
-        chunks.append(text[:split_at].strip())
-        text = text[split_at:].lstrip()
-    if text.strip():
-        chunks.append(text.strip())
-    return chunks
-
-
-def parse_jsonl(data):
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File exceeds the 25 MB upload limit.")
-    try:
-        content = data.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise HTTPException(status_code=400, detail="Upload must be UTF-8 JSONL.") from error
-    pages = []
-    try:
-        for line_number, line in enumerate(content.splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(f"Line {line_number} is not valid JSON.") from error
-            if not isinstance(row, dict):
-                raise ValueError(f"Line {line_number} must be a JSON object.")
-            text = row.get("text", "")
-            if not isinstance(text, str):
-                raise ValueError(f"Line {line_number} has invalid text fields.")
-            text_chunks = split_page_text(text)
-            title = row.get("title", "")
-            for index, chunk in enumerate(text_chunks, start=1):
-                if len(pages) >= MAX_PAGES:
-                    raise ValueError(f"Upload exceeds the {MAX_PAGES}-page limit.")
-                chunk_row = {**row, "text": chunk}
-                if len(text_chunks) > 1 and isinstance(title, str):
-                    chunk_row["title"] = f"{title[:450]} (part {index}/{len(text_chunks)})"
-                pages.append(validate_page(chunk_row, line_number))
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    if not pages:
-        raise HTTPException(status_code=400, detail="The JSONL file contains no pages.")
-    return pages
-
-
-async def load_jsonl(upload: UploadFile):
-    return parse_jsonl(await upload.read(MAX_UPLOAD_BYTES + 1))
-
-
-def github_headers(token):
-    return {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
-
-def github_get_json(url, headers):
-    try:
-        response = requests.get(url, headers=headers, timeout=20)
-        response.raise_for_status()
-        return response.json()
-    except (requests.RequestException, ValueError) as error:
-        logger.exception("GitHub artifact API request failed")
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
-def download_artifact(artifact, headers):
-    url = f"{GITHUB_API}/repos/{artifact['repository']}/actions/artifacts/{artifact['id']}/zip"
-    try:
-        with requests.get(url, headers=headers, timeout=30, stream=True) as response:
-            response.raise_for_status()
-            chunks = bytearray()
-            for chunk in response.iter_content(chunk_size=64 * 1024):
-                chunks.extend(chunk)
-                if len(chunks) > MAX_UPLOAD_BYTES:
-                    raise RuntimeError("A GitHub scrape artifact exceeds the 25 MB download limit.")
-        with ZipFile(BytesIO(chunks)) as archive:
-            members = [
-                item for item in archive.infolist()
-                if Path(item.filename).name == "pl_gov_pages.jsonl"
-            ]
-            if len(members) != 1 or members[0].file_size > MAX_UPLOAD_BYTES:
-                raise RuntimeError("GitHub artifact does not contain one valid JSONL scrape file.")
-            return archive.read(members[0])
-    except (requests.RequestException, BadZipFile, OSError) as error:
-        logger.exception("GitHub scrape artifact download failed")
-        raise RuntimeError(f"Could not download scrape artifact {artifact['id']}: {error}") from error
-
-
-def load_github_dataset():
-    token = os.getenv("GITHUB_TOKEN", "")
-    repository = os.getenv("GITHUB_REPOSITORY", "")
-    workflow = os.getenv("GITHUB_WORKFLOW_FILE", "scrape.yml")
-    if not token or not repository:
-        raise RuntimeError("Set GITHUB_TOKEN and GITHUB_REPOSITORY to load GitHub scrape artifacts.")
-    parts = repository.split("/")
-    if len(parts) != 2 or not all(parts):
-        raise RuntimeError("GITHUB_REPOSITORY must have the owner/repository format.")
-    headers = github_headers(token)
-    runs_url = (
-        f"{GITHUB_API}/repos/{repository}/actions/workflows/{workflow}/runs"
-        "?status=success&branch=main&per_page=20"
-    )
-    runs = github_get_json(runs_url, headers).get("workflow_runs", [])
-    artifacts = []
-    for run in runs[:MAX_GITHUB_RUNS]:
-        run_artifacts = github_get_json(
-            f"{GITHUB_API}/repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100",
-            headers,
-        ).get("artifacts", [])
-        match = next(
-            (
-                item for item in run_artifacts
-                if item.get("name") == "pl_gov_pages" and not item.get("expired", True)
-            ),
-            None,
-        )
-        if match:
-            artifacts.append({**match, "repository": repository})
-
-    if not artifacts:
-        raise RuntimeError(
-            "No unexpired pl_gov_pages artifacts found in the latest successful workflow runs."
-        )
-
-    pages_by_url = {}
-    for artifact in artifacts:
-        content = download_artifact(artifact, headers)
-        artifact_pages = {}
-        for row in parse_jsonl(content):
-            url = row["url"]
-            fetched_at = row["fetched_at"]
-            current = artifact_pages.get(url)
-            if current is None or fetched_at > current[0]:
-                artifact_pages[url] = (fetched_at, [row])
-            elif fetched_at == current[0]:
-                current[1].append(row)
-        for url, (fetched_at, page_parts) in artifact_pages.items():
-            previous = pages_by_url.get(url)
-            if previous is None or fetched_at >= previous[0]:
-                pages_by_url[url] = (fetched_at, page_parts)
-        if sum(len(parts) for _, parts in pages_by_url.values()) > MAX_PAGES:
-            raise RuntimeError(f"Combined GitHub artifacts exceed the {MAX_PAGES}-page limit.")
-    if not pages_by_url:
-        raise RuntimeError("The GitHub scrape artifacts contained no usable pages.")
-    return [
-        page
-        for _, page_parts in pages_by_url.values()
-        for page in page_parts
-    ], len(artifacts)
-
-
-def ensure_default_dataset():
-    if app.state.pages:
-        return
-    if os.getenv("DATABASE_URL"):
-        app.state.knowledge_source = "Supabase"
-        app.state.knowledge_error = ""
-        return
-    now = time.monotonic()
-    last = app.state.last_load_attempt
-    if last is not None and now - last < RELOAD_COOLDOWN_SECONDS:
-        return
-    app.state.last_load_attempt = now
-    github_token = os.getenv("GITHUB_TOKEN", "")
-    github_repository = os.getenv("GITHUB_REPOSITORY", "")
-    if github_token or github_repository:
-        if not github_token or not github_repository:
-            app.state.knowledge_error = (
-                "Configure both GITHUB_TOKEN and GITHUB_REPOSITORY on the app server."
-            )
-            return
-        try:
-            pages, artifact_count = load_github_dataset()
-        except HTTPException:
-            app.state.knowledge_error = (
-                "Automatic GitHub artifact loading failed. Check the server logs."
-            )
-            logger.exception("Could not load scraper pages from GitHub")
-            return
-        except RuntimeError:
-            app.state.knowledge_error = (
-                "Automatic GitHub artifact loading failed. Check Render logs and the "
-                "GITHUB_TOKEN Actions read permission, or upload the JSONL file."
-            )
-            logger.exception("Could not load scraper pages from GitHub")
-            return
-        app.state.pages = pages
-        app.state.knowledge_source = f"GitHub Actions ({artifact_count} artifacts)"
-        app.state.knowledge_error = ""
-        logger.info("Loaded %s pages from %s", len(pages), app.state.knowledge_source)
-        return
-    if not DEFAULT_DATASET.exists():
-        return
-    try:
-        app.state.pages = parse_jsonl(DEFAULT_DATASET.read_bytes())
-    except (OSError, HTTPException) as error:
-        logger.exception("Could not load local scraper dataset")
-        raise RuntimeError(f"Could not load local scraper dataset: {error}") from error
-    logger.info("Loaded %s scraper pages from %s", len(app.state.pages), DEFAULT_DATASET)
-    app.state.knowledge_source = "local scrape artifact"
-    app.state.knowledge_error = ""
-
-
-def search_supabase(query, limit=8):
-    terms = list(dict.fromkeys(tokenize(query)))[:24]
-    if not terms:
-        return []
-    tsquery = " | ".join(f"{term}:*" for term in terms)
-    connection = database_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """select url, title, content, page_type, jurisdiction, fetched_at
-                   from match_chunks(%s, %s, null::text[], null::text, %s)""",
-                (None, tsquery, limit),
-            )
-            records = cursor.fetchall()
-        return [
-            validate_page(
-                {
-                    "url": row[0],
-                    "title": row[1] or row[0],
-                    "text": row[2],
-                    "page_type": row[3] or "general_info",
-                    "source": row[4] or "official",
-                    "fetched_at": row[5].isoformat() if row[5] else "",
-                },
-                index,
-            )
-            for index, row in enumerate(records, start=1)
-        ]
-    except psycopg2.Error as error:
-        logger.exception("Supabase source search failed")
-        raise RuntimeError("Could not search official information in Supabase.") from error
-    finally:
-        connection.close()
 
 
 def persist_journey(profile_id, request, result):
@@ -1165,99 +847,6 @@ def delete_alert(profile_id, alert_id):
         connection.close()
 
 
-@app.on_event("startup")
-async def load_default_dataset():
-    await run_in_threadpool(ensure_default_dataset)
-
-
-def retrieve_pages(pages, query, limit=MAX_EVIDENCE_PAGES):
-    query_tokens = set(tokenize(query))
-    if not query_tokens:
-        return []
-    scored = []
-    for page in pages:
-        title_tokens = set(tokenize(page["title"]))
-        overlap = query_tokens.intersection(page["tokens"])
-        if not overlap:
-            continue
-        score = sum(
-            (2 if token in title_tokens else 1) * math.log1p(count)
-            for token, count in page["tokens"].items()
-            if token in query_tokens
-        )
-        scored.append((score, page))
-    scored.sort(key=lambda item: (-item[0], item[1]["url"]))
-    return [page for _, page in scored[:limit]]
-
-
-def relevant_excerpt(text, query, limit):
-    query_tokens = set(tokenize(query))
-    positions = [
-        match.start()
-        for match in TOKEN_RE.finditer(text)
-        if stem(match.group()) in query_tokens
-    ]
-    if len(text) <= limit or not positions:
-        return text[:limit]
-
-    best_start = 0
-    best_end = 0
-    window_start = 0
-    for window_end, position in enumerate(positions):
-        while position - positions[window_start] >= limit:
-            window_start += 1
-        if window_end - window_start > best_end - best_start:
-            best_start, best_end = window_start, window_end
-
-    start = max(0, positions[best_start] - (limit // 4))
-    start = min(start, len(text) - limit)
-    end = start + limit
-    if start:
-        next_space = text.find(" ", start)
-        if 0 <= next_space < start + 200:
-            start = next_space + 1
-            end = start + limit
-    if end < len(text):
-        previous_space = text.rfind(" ", end - 200, end)
-        if previous_space > start:
-            end = previous_space
-    excerpt = text[start:end]
-    return f"{'…' if start else ''}{excerpt}{'…' if end < len(text) else ''}"
-
-
-def format_evidence(pages, query=""):
-    sources = []
-    blocks = []
-    remaining = MAX_EVIDENCE_CHARS * MAX_EVIDENCE_PAGES
-    for index, page in enumerate(pages, start=1):
-        excerpt = relevant_excerpt(
-            page["text"],
-            query,
-            min(MAX_EVIDENCE_CHARS, remaining),
-        )
-        remaining -= len(excerpt)
-        source = {
-            "id": f"S{index}",
-            "title": page["title"] or page["url"],
-            "url": page["url"],
-            "source": page["source"],
-            "page_type": page["page_type"],
-            "fetched_at": page["fetched_at"],
-        }
-        if page["event_dates"]:
-            source["event_dates"] = page["event_dates"]
-        sources.append(source)
-        blocks.append(
-            f"[S{index}] {source['title']}\n"
-            f"URL: {page['url']}\n"
-            f"Type: {page['page_type']}; fetched: {page['fetched_at'] or 'unknown'}\n"
-            f"Untrusted page excerpt:\n{excerpt}"
-        )
-        if remaining <= 0:
-            break
-    return "\n\n---\n\n".join(blocks), sources
-
-
 def build_conversation(question, history):
     cleaned_history = []
     for turn in history:
@@ -1481,36 +1070,6 @@ async def research_official_sources(client, model, messages, language):
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/api/status")
-async def status():
-    await run_in_threadpool(ensure_default_dataset)
-    return {
-        "loaded_pages": len(app.state.pages),
-        "knowledge_source": "Supabase" if os.getenv("DATABASE_URL") else app.state.knowledge_source,
-        "knowledge_error": app.state.knowledge_error,
-    }
-
-
-@app.post("/api/knowledge")
-async def upload_knowledge(
-    file: UploadFile = File(...),
-    x_admin_token: str = Header(default=""),
-):
-    expected = os.getenv("ADMIN_TOKEN", "")
-    if not expected or not hmac.compare_digest(
-        x_admin_token.encode(), expected.encode()
-    ):
-        raise HTTPException(status_code=404, detail="Not found.")
-    if not (file.filename or "").lower().endswith((".jsonl", ".ndjson")):
-        raise HTTPException(status_code=415, detail="Choose a .jsonl or .ndjson artifact file.")
-    pages = await load_jsonl(file)
-    app.state.pages = pages
-    app.state.knowledge_source = "uploaded scrape artifact"
-    app.state.knowledge_error = ""
-    await file.close()
-    return {"loaded_pages": len(pages)}
 
 
 def check_rate_limit(request: Request):

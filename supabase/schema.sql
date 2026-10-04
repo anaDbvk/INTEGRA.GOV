@@ -1,5 +1,5 @@
 -- SmartIN schema for Supabase Postgres.
--- Matches load_to_supabase.py. Vector size 1024 must match your embedding model.
+-- Matches scraper/load_to_supabase.py. Vector size 1024 must match your embedding model.
 
 set search_path = public, extensions;
 
@@ -9,7 +9,7 @@ create extension if not exists unaccent with schema extensions;
 -- ---------------------------------------------------------------- sources
 create table if not exists sources (
   id            serial primary key,
-  name          text not null unique,          -- must equal SOURCES keys in pl_gov_scraper.py
+  name          text not null unique,          -- must equal SOURCES keys in scraper/pl_gov_scraper.py
   base_url      text not null,
   kind          text not null default 'scrape'
                 check (kind in ('api', 'sitemap', 'scrape', 'curated')),
@@ -189,7 +189,7 @@ revoke execute on function match_chunks(vector, text, text[], text, int)
   from public, anon, authenticated;
 
 -- ------------------------------------------------------------------ seed
--- Source names must match SOURCES in pl_gov_scraper.py exactly.
+-- Source names must match SOURCES in scraper/pl_gov_scraper.py exactly.
 insert into sources (name, base_url, kind, jurisdiction) values
   ('gov.pl',      'https://www.gov.pl',                 'scrape', 'national'),
   ('mos',         'https://mos.cudzoziemcy.gov.pl',     'scrape', 'national'),

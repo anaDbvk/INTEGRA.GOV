@@ -1,7 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from pl_gov_scraper import (
+from scraper.load_to_supabase import CHUNK_OVERLAP, CHUNK_SIZE, split_into_chunks
+from scraper.pl_gov_scraper import (
     KRAKOW_DISTRICTS,
     UA,
     WARSAW_DISTRICTS,
@@ -95,13 +96,24 @@ class ScraperTests(unittest.TestCase):
             status_code = 200
             text = "User-agent: *\nDisallow: /private/\n"
 
-        with patch("pl_gov_scraper.get", return_value=Response()):
+        with patch("scraper.pl_gov_scraper.get", return_value=Response()):
             parser = robots_for("https://example.gov")
         self.assertTrue(parser.can_fetch(UA, "https://example.gov/public"))
         self.assertFalse(parser.can_fetch(UA, "https://example.gov/private/page"))
 
-        with patch("pl_gov_scraper.get", return_value=None):
+        with patch("scraper.pl_gov_scraper.get", return_value=None):
             self.assertIsNone(robots_for("https://unavailable.gov"))
+
+
+
+class LoaderTests(unittest.TestCase):
+    def test_supabase_chunking_preserves_text_with_overlapping_context(self):
+        text = "x" * (CHUNK_SIZE + 500)
+        chunks = split_into_chunks(text)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0][-CHUNK_OVERLAP:], chunks[1][:CHUNK_OVERLAP])
+        rebuilt = chunks[0] + "".join(chunk[CHUNK_OVERLAP:] for chunk in chunks[1:])
+        self.assertEqual(rebuilt, text)
 
 
 if __name__ == "__main__":

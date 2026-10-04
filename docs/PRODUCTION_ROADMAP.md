@@ -40,8 +40,8 @@ This checklist is based on the current code (`webapp/app.py`, `render.yaml`, `su
 
 ### 4. Security
 - [x] Add a middleware for security headers: `Content-Security-Policy` (self + fonts), `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`.
-- [ ] Rotate `APP_SESSION_SECRET`, `ADMIN_TOKEN`, `ANTHROPIC_API_KEY` and the DB password before launch. Never reuse dev keys.
-- [ ] Protect or remove the admin endpoint `POST /api/knowledge` in production, since the web-search assistant no longer needs uploads.
+- [ ] Rotate `APP_SESSION_SECRET`, `ANTHROPIC_API_KEY` and the DB password before launch. Never reuse dev keys.
+- [x] Remove the admin upload endpoint `POST /api/knowledge` and the old knowledge loader (the assistant uses live web search).
 - [ ] Session expiry and cleanup: a scheduled job that deletes expired `guest_sessions`.
 - [ ] Run the `/security-review` before launch.
 
@@ -120,7 +120,7 @@ This checklist is based on the current code (`webapp/app.py`, `render.yaml`, `su
 ## Launch checklist (day of release)
 
 1. CI is green on `main`, and staging was tested end to end.
-2. Production secrets are rotated and set in Render; `ADMIN_TOKEN` is strong or the admin endpoint is disabled.
+2. Production secrets are rotated and set in Render.
 3. The DB backup is confirmed, and migrations are applied to production.
 4. The privacy policy, terms and disclaimer are live.
 5. The Anthropic spend limit, Sentry and the uptime monitor are active.

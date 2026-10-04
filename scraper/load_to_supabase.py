@@ -1,11 +1,11 @@
 """
-Load pl_gov_pages.jsonl (from pl_gov_scraper.py) into Supabase Postgres.
+Load pl_gov_pages.jsonl (from scraper/pl_gov_scraper.py) into Supabase Postgres.
 
   pip install psycopg2-binary
   export DATABASE_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres"
-  python load_to_supabase.py pl_gov_pages.jsonl
+  python scraper/load_to_supabase.py pl_gov_pages.jsonl
 
-Apply supabase_schema.sql first. Use the Session pooler connection string from
+Apply supabase/schema.sql first. Use the Session pooler connection string from
 Supabase > Project Settings > Database (GitHub runners are IPv4-only).
 
 Re-running is safe: raw pages are deduplicated, and only rows with

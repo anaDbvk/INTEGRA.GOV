@@ -3,7 +3,7 @@ Collect public Polish government information and Krakow/Warsaw municipal pages.
 
 Run locally with:
     pip install -r requirements.txt
-    MAX_PAGES=100 SOURCES_ONLY=gov.pl,krakow,warsaw python pl_gov_scraper.py
+    MAX_PAGES=100 SOURCES_ONLY=gov.pl,krakow,warsaw python scraper/pl_gov_scraper.py
 
 Pages are saved as JSONL. The crawler obeys robots.txt, stays on each source
 host, rate-limits requests, and redacts common identifiers on a best-effort

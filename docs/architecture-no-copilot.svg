@@ -15,7 +15,7 @@
 </style>
 </defs>
 <rect width="1640" height="1370" fill="#F6F3EE"/>
-<text x="40" y="52" class="t" style="font-size:30px;font-weight:700">SmartIN · Moving to Poland — technical architecture (with GitHub Copilot)</text>
+<text x="40" y="52" class="t" style="font-size:30px;font-weight:700">SmartIN · Moving to Poland — technical architecture</text>
 <text x="40" y="80" class="s" style="font-size:15px;fill:#5F6685">Mobile-first web app · live official-source research with Claude · journeys in Supabase · CI-gated deploys from GitHub to Render</text>
 <text x="40" y="104" class="band">RUNTIME</text>
 <rect x="40" y="115" width="330" height="495" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
@@ -163,33 +163,23 @@
 <text x="1323" y="962" class="chip" text-anchor="middle">GitHub Actions</text>
 <rect x="1414" y="941" width="162" height="32" rx="16" fill="#EAEEF2"/>
 <text x="1495" y="962" class="chip" text-anchor="middle">Dependabot</text>
-<rect x="1070" y="983" width="162" height="32" rx="16" fill="#F3E8FF"/>
-<text x="1151" y="1004" class="chip" text-anchor="middle">GitHub Copilot CLI</text>
-<rect x="1242" y="983" width="162" height="32" rx="16" fill="#F3E8FF"/>
-<text x="1323" y="1004" class="chip" text-anchor="middle">unittest · Node</text>
-<rect x="1414" y="983" width="162" height="32" rx="16" fill="#F3E8FF"/>
-<text x="1495" y="1004" class="chip" text-anchor="middle">gh CLI</text>
+<rect x="1070" y="983" width="162" height="32" rx="16" fill="#EAEEF2"/>
+<text x="1151" y="1004" class="chip" text-anchor="middle">unittest · Node</text>
+<rect x="1242" y="983" width="162" height="32" rx="16" fill="#EAEEF2"/>
+<text x="1323" y="1004" class="chip" text-anchor="middle">gh CLI · Git</text>
+<rect x="1414" y="983" width="162" height="32" rx="16" fill="#EAEEF2"/>
+<text x="1495" y="1004" class="chip" text-anchor="middle">headless Edge</text>
 <text x="40" y="1088" class="band">DEVELOPMENT</text>
 <rect x="40" y="1098" width="1560" height="190" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>
-<rect x="60" y="1118" width="300" height="150" rx="12" fill="#E6EEFD"/>
-<text x="74" y="1140" class="t b">Product owner / developer</text>
-<text x="74" y="1160" class="s">describes features in plain language</text>
-<text x="74" y="1178" class="s">answers design questions (ask_user)</text>
-<text x="74" y="1196" class="s">tests the live app on a phone</text>
-<text x="74" y="1214" class="s">runs SQL in Supabase SQL Editor</text>
-<text x="74" y="1232" class="s">sets secrets in Render / GitHub</text>
-<rect x="430" y="1118" width="620" height="150" rx="12" fill="#F3E8FF"/>
-<text x="444" y="1140" class="t b">GitHub Copilot CLI · coding agent</text>
-<text x="444" y="1160" class="s">plans, edits code, writes tests and docs · follows .github/copilot-instructions.md</text>
-<text x="444" y="1178" class="s">runs python -m unittest + Node smoke tests · headless Edge screenshots for UI checks</text>
-<text x="444" y="1196" class="s">commits with Co-authored-by: Copilot trailer · git push · gh run watch (CI)</text>
-<text x="444" y="1214" class="s">checks the live Render deploy (/health, headers) after each push</text>
-<text x="444" y="1232" class="s">sub-agents: explore · code review · security review · rubber-duck</text>
-<polyline points="360,1193 428,1193" fill="none" stroke="#1B2A5C" stroke-width="2.2" marker-end="url(#ah)" marker-start="url(#ah)"/>
-<text x="394" y="1160" class="lbl" text-anchor="middle">prompts</text>
-<text x="394" y="1176" class="lbl" text-anchor="middle">&amp; answers</text>
-<polyline points="740,1118 740,1068 205,1068 205,1040" fill="none" stroke="#8A8FA6" stroke-width="2.2" marker-end="url(#ahg)"/>
-<text x="420" y="1062" class="lblg" text-anchor="start">git commit · push · gh CLI</text>
+<rect x="60" y="1118" width="990" height="150" rx="12" fill="#E6EEFD"/>
+<text x="74" y="1140" class="t b">Developer workstation</text>
+<text x="74" y="1160" class="s">Python 3.12 · Node.js · Git · gh CLI · editor of choice</text>
+<text x="74" y="1178" class="s">local run: uvicorn webapp.app:app (env vars for DATABASE_URL, ANTHROPIC_API_KEY, APP_SESSION_SECRET)</text>
+<text x="74" y="1196" class="s">tests: python -m unittest · node tests/js/*.js · UI checks in a phone-sized browser window</text>
+<text x="74" y="1214" class="s">SQL changes: supabase/*.sql run in the Supabase SQL Editor</text>
+<text x="74" y="1232" class="s">secrets: Render environment and GitHub Actions secrets, never in the repository</text>
+<polyline points="540,1118 540,1068 205,1068 205,1040" fill="none" stroke="#8A8FA6" stroke-width="2.2" marker-end="url(#ahg)"/>
+<text x="330" y="1062" class="lblg" text-anchor="start">git commit · push</text>
 <rect x="1120" y="1118" width="460" height="150" rx="12" fill="#EAF1DF"/>
 <text x="1134" y="1140" class="t b">Feedback loop</text>
 <text x="1134" y="1160" class="s">CI result on every push (GitHub Actions)</text>

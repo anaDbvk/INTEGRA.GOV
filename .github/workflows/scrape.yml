@@ -30,7 +30,7 @@ jobs:
         env:
           MAX_PAGES: ${{ inputs.max_pages || '100' }}
           SOURCES_ONLY: ${{ inputs.sources_only || '' }}
-        run: python pl_gov_scraper.py
+        run: python scraper/pl_gov_scraper.py
 
       - name: Save output
         if: always()
@@ -46,4 +46,4 @@ jobs:
         continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python load_to_supabase.py pl_gov_pages.jsonl
+        run: python scraper/load_to_supabase.py pl_gov_pages.jsonl
