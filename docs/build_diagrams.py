@@ -153,7 +153,7 @@ def build(copilot):
 
     # E. GitHub
     p.append(text(40, 682, "DATA & DELIVERY", "band"))
-    p.append(panel(40, 693, 330, 345, "#24292F", "GitHub · anaDbvk/SmartIN", "private repository", sub_fill="#D0D7DE"))
+    p.append(panel(40, 693, 330, 345, "#24292F", "GitHub · anaDbvk/INTEGRA.GOV", "private repository", sub_fill="#D0D7DE"))
     p.append(lines(60, 780, [
         ("t b", "Repository"), ("s", "webapp/ · supabase/ · scraper/ · tests/ · docs/"), "gap",
         ("t b", "Actions · CI (every push / PR)"), ("s", "Python unittest · Node smoke tests"),

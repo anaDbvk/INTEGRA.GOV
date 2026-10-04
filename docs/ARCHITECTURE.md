@@ -41,7 +41,7 @@ flowchart LR
     SRC["sources (search allowlist)"]
     KB["raw_pages · documents · chunks (optional)"]
   end
-  subgraph GitHub["GitHub anaDbvk/SmartIN"]
+  subgraph GitHub["GitHub anaDbvk/INTEGRA.GOV"]
     CODE["webapp · supabase · scraper · tests · docs"]
     CI["Actions CI<br/>unittest + Node smoke tests"]
     DB["Dependabot"]

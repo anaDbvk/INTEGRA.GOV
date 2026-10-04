@@ -24,7 +24,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-UA = "SmartIN-Scraper/0.2 (+https://github.com/anaDbvk/SmartIN)"
+UA = "INTEGRA.GOV-Scraper/0.2 (+https://github.com/anaDbvk/INTEGRA.GOV)"
 DELAY = float(os.getenv("REQUEST_DELAY", "2"))
 WORKERS = max(1, int(os.getenv("SCRAPE_WORKERS", "6")))
 MAX_PAGES = int(os.getenv("MAX_PAGES", "100"))
