@@ -1,4 +1,4 @@
--- SmartIN schema for Supabase Postgres.
+-- INTEGRA.GOV schema for Supabase Postgres.
 -- Matches scraper/load_to_supabase.py. Vector size 1024 must match your embedding model.
 
 set search_path = public, extensions;

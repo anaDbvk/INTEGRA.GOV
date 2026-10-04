@@ -1,4 +1,4 @@
-"""Generate the SmartIN architecture diagrams.
+"""Generate the INTEGRA.GOV architecture diagrams.
 
     python docs/build_diagrams.py
 
@@ -90,7 +90,7 @@ def build(copilot):
 </style>
 </defs>""")
     p.append(f'<rect width="{W}" height="{H}" fill="#F6F3EE"/>')
-    title = "SmartIN · Moving to Poland — technical architecture"
+    title = "INTEGRA.GOV · Moving to Poland — technical architecture"
     p.append(text(40, 52, title + (" (with GitHub Copilot)" if copilot else ""), "t", style="font-size:30px;font-weight:700"))
     p.append(text(40, 80, "Mobile-first web app · live official-source research with Claude · journeys in Supabase · "
                   "CI-gated deploys from GitHub to Render", "s", style="font-size:15px;fill:#5F6685"))

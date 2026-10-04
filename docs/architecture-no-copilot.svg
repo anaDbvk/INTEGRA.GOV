@@ -15,7 +15,7 @@
 </style>
 </defs>
 <rect width="1640" height="1370" fill="#F6F3EE"/>
-<text x="40" y="52" class="t" style="font-size:30px;font-weight:700">SmartIN · Moving to Poland — technical architecture</text>
+<text x="40" y="52" class="t" style="font-size:30px;font-weight:700">INTEGRA.GOV · Moving to Poland — technical architecture</text>
 <text x="40" y="80" class="s" style="font-size:15px;fill:#5F6685">Mobile-first web app · live official-source research with Claude · journeys in Supabase · CI-gated deploys from GitHub to Render</text>
 <text x="40" y="104" class="band">RUNTIME</text>
 <rect x="40" y="115" width="330" height="495" rx="20" fill="#fff" stroke="#E6E1D8" stroke-width="1.5"/>

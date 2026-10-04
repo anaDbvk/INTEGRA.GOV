@@ -1,4 +1,4 @@
--- SmartIN phone-profile sessions, saved journeys, conversations, and alerts.
+-- INTEGRA.GOV phone-profile sessions, saved journeys, conversations, and alerts.
 -- Apply after schema.sql. Phone numbers are stored only as application-keyed
 -- hashes; the app secret must remain stable for existing profile access.
 

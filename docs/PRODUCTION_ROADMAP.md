@@ -1,4 +1,4 @@
-# SmartIN – Road to production
+# INTEGRA.GOV – Road to production
 
 This checklist is based on the current code (`webapp/app.py`, `render.yaml`, `supabase/*.sql`). Items are ordered by priority. **P0** must be done before real users, **P1** before public launch, and **P2** after launch.
 
@@ -76,7 +76,7 @@ This checklist is based on the current code (`webapp/app.py`, `render.yaml`, `su
 - [ ] Write a runbook: how to roll back on Render, restore the DB, and rotate keys.
 
 ### 9. Domain and delivery
-- [ ] Your own domain (for example `smartin.pl`) on Render with automatic HTTPS.
+- [ ] Your own domain (for example `integragov.pl`) on Render with automatic HTTPS.
 - [ ] Serve static files with cache headers and a version hash (`app.js?v=...`), or put Cloudflare in front for CDN and DDoS protection.
 - [ ] Make it a **PWA**: `manifest.json`, icons and a service worker, so users can "Add to Home Screen" and see journeys offline.
 

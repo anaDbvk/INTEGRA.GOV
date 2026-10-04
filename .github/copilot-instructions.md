@@ -1,6 +1,6 @@
-# SmartIN: instructions for Copilot
+# INTEGRA.GOV: instructions for Copilot
 
-SmartIN ("Moving to Poland") is a mobile-first web app that guides newcomers
+INTEGRA.GOV ("Moving to Poland") is a mobile-first web app that guides newcomers
 through Polish public services (residence, documents, marriage, housing, health,
 taxes, business, local events). The FastAPI app researches approved official
 websites live with Anthropic web search, answers only from the cited results,

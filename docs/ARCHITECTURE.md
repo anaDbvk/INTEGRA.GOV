@@ -1,14 +1,14 @@
-# SmartIN architecture
+# INTEGRA.GOV architecture
 
 ## Diagrams
 
 ### With GitHub Copilot (development loop)
 
-![SmartIN technical architecture with GitHub Copilot](architecture.png)
+![INTEGRA.GOV technical architecture with GitHub Copilot](architecture.png)
 
 ### Without GitHub Copilot
 
-![SmartIN technical architecture without GitHub Copilot](architecture-no-copilot.png)
+![INTEGRA.GOV technical architecture without GitHub Copilot](architecture-no-copilot.png)
 
 The SVG sources are [`architecture.svg`](architecture.svg) and
 [`architecture-no-copilot.svg`](architecture-no-copilot.svg). They are

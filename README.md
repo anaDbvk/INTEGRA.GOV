@@ -1,4 +1,4 @@
-# SmartIN · Moving to Poland
+# INTEGRA.GOV · Moving to Poland
 
 A mobile-first web app that helps newcomers to Poland plan official tasks
 (residence permit, PESEL, address registration, NFZ, ZUS, taxes, business…).
@@ -8,7 +8,7 @@ edit their own journeys, track progress and see in-app reminders.
 
 Live: <https://moving-to-poland.onrender.com>
 
-![SmartIN architecture](docs/architecture.png)
+![INTEGRA.GOV architecture](docs/architecture.png)
 
 ## Features
 
